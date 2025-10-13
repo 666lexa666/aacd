@@ -19,6 +19,11 @@ router.post("/", async (req, res) => {
       return res.status(400).json({ error: "Missing steamId or amount" });
     }
 
+    // ✅ Если пришёл ping, просто возвращаем 200 OK
+    if (steamId === "ping") {
+      return res.status(200).json({ result: "pong" });
+    }
+
     // 📅 UTC время
     const now = new Date().toISOString();
 
