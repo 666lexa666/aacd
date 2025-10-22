@@ -13,21 +13,36 @@ const supabase = createClient(
 // 📦 POST /api/order
 router.post("/", async (req, res) => {
   try {
-    const { steamId, amount } = req.body;
+    const { steamId, amount, api_login, api_key } = req.body;
 
-    if (!steamId || !amount) {
-      return res.status(400).json({ error: "Missing steamId or amount" });
+    // ✅ Проверка обязательных полей
+    if (!steamId || !amount || !api_login || !api_key) {
+      return res.status(400).json({ error: "Missing required fields" });
     }
 
-    // ✅ Если пришёл ping, просто возвращаем 200 OK
+    // ✅ Если это ping-запрос
     if (steamId === "ping") {
       return res.status(200).json({ result: "pong" });
     }
 
-    // 📅 UTC время
+    // 🔍 Проверяем клиента в таблице api_clients
+    const { data: client, error: clientErr } = await supabase
+      .from("api_clients")
+      .select("api_login, api_key")
+      .eq("api_login", api_login)
+      .eq("api_key", api_key)
+      .maybeSingle();
+
+    if (clientErr) throw clientErr;
+
+    if (!client) {
+      return res.status(401).json({ error: "Invalid API credentials" });
+    }
+
+    // 📅 Время
     const now = new Date().toISOString();
 
-    // 🔍 Ищем user_id по steam_login
+    // 🔍 Ищем пользователя по steam_login
     const { data: user, error: userErr } = await supabase
       .from("profiles")
       .select("id")
@@ -36,7 +51,7 @@ router.post("/", async (req, res) => {
 
     if (userErr) throw userErr;
 
-    // 🎟️ Генерация ID и ссылки на оплату
+    // 🎟️ Генерация ID и ссылки
     const operation_id = uuidv4();
     const nspk = `https://pay.nspk.ru/${operation_id}`;
 
@@ -48,6 +63,7 @@ router.post("/", async (req, res) => {
       amount,
       status: "pending",
       nspk,
+      api_login, // 👈 сохраняем, кто сделал запрос
       created_at: now,
       updated_at: now,
     };
@@ -58,7 +74,7 @@ router.post("/", async (req, res) => {
 
     if (insertErr) throw insertErr;
 
-    // 🧾 Ответ
+    // 🧾 Ответ клиенту
     return res.json({
       result: {
         qr_link: nspk,
