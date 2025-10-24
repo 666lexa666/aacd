@@ -2,6 +2,7 @@ import express from "express";
 import { createClient } from "@supabase/supabase-js";
 import { v4 as uuidv4 } from "uuid";
 import axios from "axios";
+import https from "https";
 
 const router = express.Router();
 
@@ -43,26 +44,27 @@ router.post("/", async (req, res) => {
 
     // 🔧 Подготовим тело запроса для песочницы ЦФТ
     const qrRequestBody = {
-      extEntityId: process.env.CFT_EXT_ENTITY_ID,   // твой extEntityId
-      merchantId: process.env.CFT_MERCHANT_ID,     // твой merchantId
-      accAlias: process.env.CFT_ACC_ALIAS,         // алиас счета
-      amount: Number(amount),                       // сумма в копейках
+      extEntityId: process.env.CFT_EXT_ENTITY_ID,
+      merchantId: process.env.CFT_MERCHANT_ID,
+      accAlias: process.env.CFT_ACC_ALIAS,
+      amount: Number(amount),
       paymentPurpose: `Пополнение SteamID ${steamId}`,
-      qrcType: "02",                                // 01 - Static, 02 - Dynamic
-      expDt: 5,                                     // мин, время жизни QR
-      localExpDt: 300                               // сек, время жизни QR
+      qrcType: "02",
+      expDt: 5,
+      localExpDt: 300
     };
 
     // 🌐 Отправляем запрос в песочницу ЦФТ
     const { data: qrResponse } = await axios.post(
-      "http://ahmad.ftc.ru:10400/qr",
+      "https://ahmad.ftc.ru:10400/qr",
       qrRequestBody,
       {
         headers: {
           "Content-Type": "application/json",
-          "authsp": "Odin-god-steam" // authsp обязателен
+          authsp: "Odin-god-steam"
         },
-        timeout: 10000
+        timeout: 10000,
+        httpsAgent: new https.Agent({ rejectUnauthorized: false }) // Игнорируем самоподписанный сертификат
       }
     );
 
