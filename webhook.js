@@ -20,11 +20,9 @@ router.post("/", async (req, res) => {
   console.log(`[${timestamp}] Webhook received:`, body);
 
   try {
-    // 🔹 Правильные имена из webhook
     const { amount, qrcId, sndPam, sndPhoneMasked } = body;
-    const sndpam = sndPam; // подгоняем под имя в БД
 
-    if (!qrcId || !sndpam || !sndPhoneMasked || !amount) {
+    if (!qrcId || !sndPam || !sndPhoneMasked || !amount) {
       console.warn("❌ Missing required fields in webhook");
       return res.status(400).json({ error: "Missing required fields" });
     }
@@ -48,13 +46,14 @@ router.post("/", async (req, res) => {
 
     const startOfDay = new Date(utc3);
     startOfDay.setHours(0, 0, 0, 0);
+
     const startOfMonth = new Date(utc3.getFullYear(), utc3.getMonth(), 1);
 
-    // 🔎 Берём все успешные платежи (кроме текущего)
+    // 🔎 Берём все успешные платежи за этот месяц/день (кроме текущего)
     const { data: payments, error: paymentsErr } = await supabase
       .from("purchases")
       .select("amount, created_at")
-      .eq("sndpam", sndpam)
+      .eq("sndpam", sndPam)
       .eq("payer_phone", sndPhoneMasked)
       .eq("status", "success")
       .neq("qr_id", qrcId);
@@ -67,8 +66,11 @@ router.post("/", async (req, res) => {
 
     for (const p of payments || []) {
       const created = new Date(p.created_at);
-      if (created >= startOfDay) totalDay += p.amount;
-      if (created >= startOfMonth) totalMonth += p.amount;
+      // Приводим дату платежа к UTC+3
+      const createdUTC3 = new Date(created.getTime() + 3 * 60 * 60 * 1000);
+
+      if (createdUTC3 >= startOfDay) totalDay += p.amount;
+      if (createdUTC3 >= startOfMonth) totalMonth += p.amount;
     }
 
     // Добавляем текущую сумму (в рублях, т.к. из webhook приходит в копейках)
@@ -77,7 +79,7 @@ router.post("/", async (req, res) => {
     totalMonth += currentAmountRub;
 
     console.log(
-      `💰 User: ${sndpam} (${sndPhoneMasked}) | Day total: ${totalDay}₽ | Month total: ${totalMonth}₽`
+      `💰 User: ${sndPam} (${sndPhoneMasked}) | Day total: ${totalDay}₽ | Month total: ${totalMonth}₽`
     );
 
     // 🔒 Проверка лимитов
@@ -95,11 +97,11 @@ router.post("/", async (req, res) => {
       newStatus = "refund";
     }
 
-    // 💾 Обновляем только нужные поля
+    // 💾 Обновляем запись в БД
     const { error: updateErr } = await supabase
       .from("purchases")
       .update({
-        sndpam,
+        sndpam: sndPam,
         payer_phone: sndPhoneMasked,
         status: newStatus,
         updated_at: new Date().toISOString(),
