@@ -60,7 +60,7 @@ router.post("/", async (req, res) => {
       {
         headers: {
           "Content-Type": "application/json",
-          "authsp": process.env.CFT_MERCHANT_ID // authsp обязателен
+          "authsp": "Odin-god-steam" // authsp обязателен
         },
         timeout: 10000
       }
