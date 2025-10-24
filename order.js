@@ -17,16 +17,17 @@ router.post("/", async (req, res) => {
   try {
     const { steamId, amount, api_login, api_key } = req.body;
 
+    // Проверка обязательных полей
     if (!steamId || !amount || !api_login || !api_key) {
       return res.status(400).json({ error: "Missing required fields" });
     }
 
-    // ✅ ping-тест
+    // ✅ Ping-тест
     if (steamId === "ping") {
       return res.status(200).json({ result: "pong" });
     }
 
-    // 🔍 Проверяем API-клиента
+    // 🔍 Проверка API-клиента в Supabase
     const { data: client, error: clientErr } = await supabase
       .from("api_clients")
       .select("api_login, api_key")
@@ -35,14 +36,12 @@ router.post("/", async (req, res) => {
       .maybeSingle();
 
     if (clientErr) throw clientErr;
-    if (!client) {
-      return res.status(401).json({ error: "Invalid API credentials" });
-    }
+    if (!client) return res.status(401).json({ error: "Invalid API credentials" });
 
+    const operationId = uuidv4();
     const now = new Date().toISOString();
-    const operation_id = uuidv4();
 
-    // 🔧 Подготовим тело запроса для песочницы ЦФТ
+    // 🔧 Подготовка тела запроса для песочницы ЦФТ
     const qrRequestBody = {
       extEntityId: process.env.CFT_EXT_ENTITY_ID,
       merchantId: process.env.CFT_MERCHANT_ID,
@@ -51,33 +50,36 @@ router.post("/", async (req, res) => {
       paymentPurpose: `Пополнение SteamID ${steamId}`,
       qrcType: "02",
       expDt: 5,
-      localExpDt: 300
+      localExpDt: 300,
     };
 
-    // 🌐 Отправляем запрос в песочницу ЦФТ (HTTPS)
-    const { data: qrResponse } = await axios.post(
-      "https://ahmad.ftc.ru:10400/qr",
+    // 🌐 Отправка запроса в песочницу ЦФТ
+    const qrResponse = await axios.post(
+      process.env.CFT_SANDBOX_URL || "https://ahmad.ftc.ru:10400/qr",
       qrRequestBody,
       {
         headers: {
           "Content-Type": "application/json",
-          authsp: "sandbox-bank.ru" // домен песочницы, не твой ТСП
+          authsp: process.env.CFT_SANDBOX_AUTHSP || "sandbox-bank.ru",
         },
         timeout: 10000,
-        httpsAgent: new https.Agent({ rejectUnauthorized: false })
+        httpsAgent: new https.Agent({ rejectUnauthorized: false }),
       }
     );
 
-    // 🧾 Ответ от ЦФТ
-    const { qrcId, payload } = qrResponse;
+    const { qrcId, payload } = qrResponse.data;
 
-    // 💾 Сохраняем запись в БД
+    if (!qrcId || !payload) {
+      return res.status(502).json({ error: "Invalid response from CFT sandbox" });
+    }
+
+    // 💾 Сохранение покупки в Supabase
     const { error: insertErr } = await supabase.from("purchases").insert([
       {
-        id: operation_id,
+        id: operationId,
         user_id: null,
         steam_login: steamId,
-        amount,
+        amount: Number(amount),
         status: "pending",
         api_login,
         qr_id: qrcId,
@@ -89,8 +91,8 @@ router.post("/", async (req, res) => {
 
     if (insertErr) throw insertErr;
 
-    // 🔗 Отправляем QR клиенту
-    return res.json({
+    // 🔗 Отправка QR-кода клиенту
+    return res.status(201).json({
       result: {
         qr_id: qrcId,
         qr_payload: payload,
@@ -98,7 +100,7 @@ router.post("/", async (req, res) => {
     });
   } catch (err) {
     console.error("❌ Ошибка /api/order:", err);
-    return res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: err?.message || "Internal Server Error" });
   }
 });
 
