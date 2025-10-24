@@ -4,6 +4,8 @@ import { v4 as uuidv4 } from "uuid";
 import axios from "axios";
 import https from "https";
 import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
 
 const router = express.Router();
 
@@ -54,13 +56,18 @@ router.post("/", async (req, res) => {
       localExpDt: 300,
     };
 
-    // 🌐 Настройка HTTPS агента с pfx для TLS
-    const pfxPath = "./cert/tsp1924.b101775.pfx";
-    const pfxPassword = process.env.CFT_PFX_PASSWORD;
+    // 🌐 Абсолютный путь к pfx
+    const __filename = fileURLToPath(import.meta.url);
+    const __dirname = path.dirname(__filename);
+    const pfxPath = path.join(__dirname, "cert", "tsp1924.b101775.pfx");
+
+    if (!fs.existsSync(pfxPath)) {
+      return res.status(500).json({ error: `PFX file not found at ${pfxPath}` });
+    }
 
     const agent = new https.Agent({
       pfx: fs.readFileSync(pfxPath),
-      passphrase: pfxPassword,
+      passphrase: process.env.CFT_PFX_PASSWORD,
       rejectUnauthorized: true, // обязательно для продакшена
     });
 
