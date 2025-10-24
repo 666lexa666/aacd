@@ -48,7 +48,7 @@ router.post("/", async (req, res) => {
       merchantId: process.env.CFT_MERCHANT_ID,
       accAlias: process.env.CFT_ACC_ALIAS,
       amount: Number(amount),
-      paymentPurpose: `Пополнение SteamID ${steamId}`,
+      paymentPurpose: `Odin-god-steam - Пополнение Steam ${steamId}`,
       qrcType: "02",
       expDt: 5,
       localExpDt: 300,
