@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { v4 as uuidv4 } from "uuid";
 import axios from "axios";
 import https from "https";
+import fs from "fs";
 
 const router = express.Router();
 
@@ -12,7 +13,7 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
-// 📦 POST /api/order — регистрация QR в песочнице ЦФТ
+// 📦 POST /api/order — регистрация QR в ЦФТ (продакшн)
 router.post("/", async (req, res) => {
   try {
     const { steamId, amount, api_login, api_key } = req.body;
@@ -41,7 +42,7 @@ router.post("/", async (req, res) => {
     const operationId = uuidv4();
     const now = new Date().toISOString();
 
-    // 🔧 Подготовка тела запроса для песочницы ЦФТ
+    // 🔧 Подготовка тела запроса для ЦФТ
     const qrRequestBody = {
       extEntityId: process.env.CFT_EXT_ENTITY_ID,
       merchantId: process.env.CFT_MERCHANT_ID,
@@ -53,24 +54,34 @@ router.post("/", async (req, res) => {
       localExpDt: 300,
     };
 
-    // 🌐 Отправка запроса в песочницу ЦФТ
+    // 🌐 Настройка HTTPS агента с pfx для TLS
+    const pfxPath = "./cert/tsp1924.b101775.pfx";
+    const pfxPassword = process.env.CFT_PFX_PASSWORD;
+
+    const agent = new https.Agent({
+      pfx: fs.readFileSync(pfxPath),
+      passphrase: pfxPassword,
+      rejectUnauthorized: true, // обязательно для продакшена
+    });
+
+    // 🌐 Отправка запроса в ЦФТ
     const qrResponse = await axios.post(
-      process.env.CFT_SANDBOX_URL || "https://ahmad.ftc.ru:10400/qr",
+      process.env.CFT_PROD_URL || "https://prod.cft.ru/qr",
       qrRequestBody,
       {
         headers: {
           "Content-Type": "application/json",
-          authsp: process.env.CFT_SANDBOX_AUTHSP || "sandbox-bank.ru",
+          authsp: process.env.CFT_PROD_AUTHSP || "prod-bank.ru",
         },
         timeout: 10000,
-        httpsAgent: new https.Agent({ rejectUnauthorized: false }),
+        httpsAgent: agent,
       }
     );
 
     const { qrcId, payload } = qrResponse.data;
 
     if (!qrcId || !payload) {
-      return res.status(502).json({ error: "Invalid response from CFT sandbox" });
+      return res.status(502).json({ error: "Invalid response from CFT" });
     }
 
     // 💾 Сохранение покупки в Supabase
