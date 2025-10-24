@@ -92,7 +92,7 @@ router.post("/", async (req, res) => {
     // 💾 Сохраняем запись в Supabase
     const { error: insertErr } = await supabase.from("purchases").insert([
       {
-        id: operationId,
+        id: String(operationId),
         steam_login: steamId,
         amount: Number(amount),
         status: "pending",
@@ -109,7 +109,7 @@ router.post("/", async (req, res) => {
     // ✅ Возвращаем клиенту данные
     return res.status(201).json({
       result: {
-        operation_id: operationId, // наш UUID
+        operation_id: String(operationId), // наш UUID
         qr_id: qrcId,              // от ЦФТ
         qr_payload: payload,       // ссылка на QR
       },
