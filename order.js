@@ -2,7 +2,6 @@ import express from "express";
 import { createClient } from "@supabase/supabase-js";
 import { v4 as uuidv4 } from "uuid";
 import axios from "axios";
-import https from "https";
 
 const router = express.Router();
 
@@ -42,31 +41,33 @@ router.post("/", async (req, res) => {
     const now = new Date().toISOString();
     const operation_id = uuidv4();
 
-    // 🔧 Подготовим тело запроса для API песочницы ЦФТ
+    // 🔧 Подготовим тело запроса для песочницы ЦФТ
     const qrRequestBody = {
-      rqUid: operation_id,
-      rqTm: now,
-      merchantId: "MB0002029281", // ⚙️ Твой merchantId из таблицы
-      amount: Number(amount),
-      currency: "RUB",
-      purpose: `Пополнение SteamID ${steamId}`,
-      qrType: "QRDynamic",
-      redirectUrl: `https://yourdomain.com/sbp/callback/${operation_id}`, // callback
+      extEntityId: process.env.CFT_EXT_ENTITY_ID,   // твой extEntityId
+      merchantId: process.env.CFT_MERCHANT_ID,     // твой merchantId
+      accAlias: process.env.CFT_ACC_ALIAS,         // алиас счета
+      amount: Number(amount),                       // сумма в копейках
+      paymentPurpose: `Пополнение SteamID ${steamId}`,
+      qrcType: "02",                                // 01 - Static, 02 - Dynamic
+      expDt: 5,                                     // мин, время жизни QR
+      localExpDt: 300                               // сек, время жизни QR
     };
 
-    // 🌐 Отправляем запрос в песочницу ЦФТ (игнорируем самоподписанный сертификат)
+    // 🌐 Отправляем запрос в песочницу ЦФТ
     const { data: qrResponse } = await axios.post(
-      "https://ahmad.ftc.ru:10400/qr",
+      "http://ahmad.ftc.ru:10400/qr",
       qrRequestBody,
       {
-        headers: { "Content-Type": "application/json" },
-        timeout: 10000,
-        httpsAgent: new https.Agent({ rejectUnauthorized: false }), // 🔥 игнорируем проверку сертификата
+        headers: {
+          "Content-Type": "application/json",
+          "authsp": process.env.CFT_MERCHANT_ID // authsp обязателен
+        },
+        timeout: 10000
       }
     );
 
     // 🧾 Ответ от ЦФТ
-    const { qrId, payload } = qrResponse;
+    const { qrcId, payload } = qrResponse;
 
     // 💾 Сохраняем запись в БД
     const { error: insertErr } = await supabase.from("purchases").insert([
@@ -77,7 +78,7 @@ router.post("/", async (req, res) => {
         amount,
         status: "pending",
         api_login,
-        qr_id: qrId,
+        qr_id: qrcId,
         qr_payload: payload,
         created_at: now,
         updated_at: now,
@@ -89,7 +90,7 @@ router.post("/", async (req, res) => {
     // 🔗 Отправляем QR клиенту
     return res.json({
       result: {
-        qr_id: qrId,
+        qr_id: qrcId,
         qr_payload: payload,
       },
     });
