@@ -3,9 +3,6 @@ import { createClient } from "@supabase/supabase-js";
 import { v4 as uuidv4 } from "uuid";
 import axios from "axios";
 import https from "https";
-import fs from "fs";
-import path from "path";
-import { fileURLToPath } from "url";
 
 const router = express.Router();
 
@@ -56,17 +53,15 @@ router.post("/", async (req, res) => {
       localExpDt: 300,
     };
 
-    // 🌐 Абсолютный путь к pfx
-    const __filename = fileURLToPath(import.meta.url);
-    const __dirname = path.dirname(__filename);
-    const pfxPath = path.join(__dirname, "cert", "tsp1924.b101775.pfx");
-
-    if (!fs.existsSync(pfxPath)) {
-      return res.status(500).json({ error: `PFX file not found at ${pfxPath}` });
+    // 🌐 Декодирование PFX из base64 (Render Secret)
+    if (!process.env.CFT_PFX_BASE64 || !process.env.CFT_PFX_PASSWORD) {
+      return res.status(500).json({ error: "PFX base64 or password not set in environment" });
     }
 
+    const pfxBuffer = Buffer.from(process.env.CFT_PFX_BASE64, "base64");
+
     const agent = new https.Agent({
-      pfx: fs.readFileSync(pfxPath),
+      pfx: pfxBuffer,
       passphrase: process.env.CFT_PFX_PASSWORD,
       rejectUnauthorized: true, // обязательно для продакшена
     });
