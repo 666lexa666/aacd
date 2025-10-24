@@ -94,7 +94,7 @@ router.post("/", async (req, res) => {
       {
         id: String(operationId),
         steam_login: steamId,
-        amount: Number(amount),
+        amount: Number(amount/100),
         status: "pending",
         api_login,
         qr_id: qrcId,
