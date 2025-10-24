@@ -2,7 +2,6 @@ import express from "express";
 import { createClient } from "@supabase/supabase-js";
 import { v4 as uuidv4 } from "uuid";
 import axios from "axios";
-import https from "https";
 
 const router = express.Router();
 
@@ -61,10 +60,9 @@ router.post("/", async (req, res) => {
       {
         headers: {
           "Content-Type": "application/json",
-          authsp: "Odin-god-steam"
+          authsp: "sandbox-bank.ru" // обязательно домен песочницы
         },
-        timeout: 10000,
-        httpsAgent: new https.Agent({ rejectUnauthorized: false }) // Игнорируем самоподписанный сертификат
+        timeout: 10000
       }
     );
 
