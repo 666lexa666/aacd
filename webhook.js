@@ -20,9 +20,11 @@ router.post("/", async (req, res) => {
   console.log(`[${timestamp}] Webhook received:`, body);
 
   try {
+    // 🔹 Правильные имена из webhook
     const { amount, qrcId, sndPam, sndPhoneMasked } = body;
+    const sndpam = sndPam; // подгоняем под имя в БД
 
-    if (!qrcId || !sndPam || !sndPhoneMasked || !amount) {
+    if (!qrcId || !sndpam || !sndPhoneMasked || !amount) {
       console.warn("❌ Missing required fields in webhook");
       return res.status(400).json({ error: "Missing required fields" });
     }
@@ -48,11 +50,11 @@ router.post("/", async (req, res) => {
     startOfDay.setHours(0, 0, 0, 0);
     const startOfMonth = new Date(utc3.getFullYear(), utc3.getMonth(), 1);
 
-    // 🔎 Берём все успешные платежи за этот месяц/день (кроме текущего)
+    // 🔎 Берём все успешные платежи (кроме текущего)
     const { data: payments, error: paymentsErr } = await supabase
       .from("purchases")
       .select("amount, created_at")
-      .eq("sndPam", sndPam)
+      .eq("sndpam", sndpam)
       .eq("payer_phone", sndPhoneMasked)
       .eq("status", "success")
       .neq("qr_id", qrcId);
@@ -75,7 +77,7 @@ router.post("/", async (req, res) => {
     totalMonth += currentAmountRub;
 
     console.log(
-      `💰 User: ${sndPam} (${sndPhoneMasked}) | Day total: ${totalDay}₽ | Month total: ${totalMonth}₽`
+      `💰 User: ${sndpam} (${sndPhoneMasked}) | Day total: ${totalDay}₽ | Month total: ${totalMonth}₽`
     );
 
     // 🔒 Проверка лимитов
@@ -93,11 +95,11 @@ router.post("/", async (req, res) => {
       newStatus = "refund";
     }
 
-    // 💾 Обновляем запись в БД
+    // 💾 Обновляем только нужные поля
     const { error: updateErr } = await supabase
       .from("purchases")
       .update({
-        sndPam,
+        sndpam,
         payer_phone: sndPhoneMasked,
         status: newStatus,
         updated_at: new Date().toISOString(),
