@@ -1,61 +1,31 @@
 import express from "express";
-import { createClient } from "@supabase/supabase-js";
-import { v4 as uuidv4 } from "uuid";
+import fs from "fs";
+import path from "path";
 
-const router = express.Router();
+const app = express();
+app.use(express.json());
 
-// 🔑 Supabase
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-);
+// Папка для логов
+const logFile = path.join(process.cwd(), "webhook_logs.txt");
 
-// 📦 POST /api/sub
-router.post("/", async (req, res) => {
-  try {
-    const { steamId } = req.body;
-    if (!steamId) return res.status(400).json({ error: "Missing steamId" });
+// 📌 Webhook endpoint
+app.post("/api/sub/webhook/payment", (req, res) => {
+  const timestamp = new Date().toISOString();
+  const body = req.body;
 
-    const now = new Date().toISOString();
+  console.log(`[${timestamp}] Webhook received:`, body);
 
-    const { data: user, error: userErr } = await supabase
-      .from("profiles")
-      .select("id")
-      .eq("steam_login", steamId)
-      .maybeSingle();
+  // Сохраняем лог в файл
+  fs.appendFile(logFile, `[${timestamp}] ${JSON.stringify(body)}\n`, (err) => {
+    if (err) console.error("❌ Failed to write log:", err);
+  });
 
-    if (userErr) throw userErr;
-
-    const operation_id = uuidv4();
-    const nspk = `https://pay.nspk.ru/${operation_id}`;
-
-    const newPurchase = {
-      id: operation_id,
-      user_id: user ? user.id : null,
-      steam_login: steamId,
-      amount: 200,
-      status: "pending",
-      nspk,
-      created_at: now,
-      updated_at: now,
-    };
-
-    const { error: insertErr } = await supabase
-      .from("purchases")
-      .insert([newPurchase]);
-
-    if (insertErr) throw insertErr;
-
-    return res.json({
-      result: {
-        qr_link: nspk,
-        operation_id,
-      },
-    });
-  } catch (err) {
-    console.error("❌ Ошибка /api/sub:", err);
-    return res.status(500).json({ error: err.message });
-  }
+  // Ответ серверу, что получили уведомление
+  res.status(200).json({ result: "ok" });
 });
 
-export default router;
+// 🔹 HTTP-сервер на порту 10000
+const PORT = process.env.SUB_PORT || 10000;
+app.listen(PORT, () => {
+  console.log(`Webhook HTTP server running on http://localhost:${PORT}`);
+});
