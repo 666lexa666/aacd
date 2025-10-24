@@ -2,6 +2,7 @@ import express from "express";
 import axios from "axios";
 import https from "https";
 import { createClient } from "@supabase/supabase-js";
+import { v4 as uuidv4 } from "uuid";
 
 const router = express.Router();
 router.use(express.json());
@@ -66,14 +67,13 @@ router.post("/", async (req, res) => {
 
     for (const p of payments || []) {
       const created = new Date(p.created_at);
-      // Приводим дату платежа к UTC+3
       const createdUTC3 = new Date(created.getTime() + 3 * 60 * 60 * 1000);
 
       if (createdUTC3 >= startOfDay) totalDay += p.amount;
       if (createdUTC3 >= startOfMonth) totalMonth += p.amount;
     }
 
-    // Добавляем текущую сумму (в рублях, т.к. из webhook приходит в копейках)
+    // Добавляем текущую сумму (в рублях)
     const currentAmountRub = Number(amount) / 100;
     totalDay += currentAmountRub;
     totalMonth += currentAmountRub;
@@ -90,10 +90,10 @@ router.post("/", async (req, res) => {
     let refundReason = null;
 
     if (totalDay > dayLimit) {
-      refundReason = "Превышен дневной лимит суммы операций (10 000₽)";
+      refundReason = `Превышен дневной лимит суммы операций (${dayLimit.toLocaleString()}₽)`;
       newStatus = "refund";
     } else if (totalMonth > monthLimit) {
-      refundReason = "Превышен месячный лимит суммы операций (100 000₽)";
+      refundReason = `Превышен месячный лимит суммы операций (${monthLimit.toLocaleString()}₽)`;
       newStatus = "refund";
     }
 
@@ -116,10 +116,10 @@ router.post("/", async (req, res) => {
 
       const refundBody = {
         longWait: false,
+        internalTxId: uuidv4(),
         refId: `refund-${qrcId}`,
         refType: "qrcId",
         refData: qrcId,
-        amount: Number(amount),
         remitInfo: refundReason,
       };
 
