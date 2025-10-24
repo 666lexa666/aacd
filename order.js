@@ -55,7 +55,7 @@ router.post("/", async (req, res) => {
 
     // 🌐 Отправляем запрос в песочницу ЦФТ
     const { data: qrResponse } = await axios.post(
-      "http://ahmad.ftc.ru:10400/qr",
+      "https://ahmad.ftc.ru:10400/qr",
       qrRequestBody,
       {
         headers: {
