@@ -80,6 +80,8 @@ router.post("/", async (req, res) => {
       }
     );
 
+    console.log("📥 Ответ от ЦФТ:", JSON.stringify(qrResponse.data, null, 2));
+
     const { qrcId, payload } = qrResponse.data;
 
     if (!qrcId || !payload) {
