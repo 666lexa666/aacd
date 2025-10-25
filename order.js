@@ -1,10 +1,21 @@
 import express from "express";
+import cors from "cors"; // <-- добавляем
+
 import { createClient } from "@supabase/supabase-js";
 import { v4 as uuidv4 } from "uuid";
 import axios from "axios";
 import https from "https";
 
 const router = express.Router();
+
+// 🟢 Настройка CORS
+router.use(
+  cors({
+    origin: "https://odin-god-steam.ru", // разрешённый фронт
+    methods: ["POST"],                    // только POST
+    allowedHeaders: ["Content-Type"],     // разрешённые заголовки
+  })
+);
 
 // 🔑 Инициализация Supabase
 const supabase = createClient(
