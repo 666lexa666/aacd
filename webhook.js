@@ -114,7 +114,7 @@ router.post("/", async (req, res) => {
 
       const refundBody = {
         longWait: false,
-        internalTxId: uuidv4(),
+        internalTxId: uuidv4().replace(/-/g, "").slice(0, 32),
         refId: `refund-${qrcId}`,
         refType: "qrcId",
         refData: qrcId,
@@ -142,7 +142,12 @@ router.post("/", async (req, res) => {
           }
         );
 
-        console.log("✅ Refund response:", refundRes.data);
+        console.log(
+          `✅ Refund ${qrcId} completed:`,
+          `internalTxId=${refundRes.data.internalTxId}`,
+          `status=${refundRes.data.status}`,
+          `amount=${refundRes.data.amount}`
+        );
       } catch (refundErr) {
         // Полное логирование ошибки
         if (refundErr.response) {
