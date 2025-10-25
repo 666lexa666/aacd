@@ -169,7 +169,7 @@ router.post("/", async (req, res) => {
       result: "ok",
       steam_transaction: topupRes.data,
     });
-  } catch (err: any) {
+  } catch (err) {
     console.error("❌ Webhook processing failed:", err.response?.data || err.message);
     return res.status(500).json({ error: "Internal server error" });
   }
