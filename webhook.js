@@ -1,13 +1,14 @@
 import express from "express";
 import { createClient } from "@supabase/supabase-js";
+import axios from "axios";
 
 const router = express.Router();
 router.use(express.json());
 
 // 🔑 Подключаем Supabase
 const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
+  process.env.SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
 // 📦 Основной webhook
@@ -38,6 +39,8 @@ router.post("/", async (req, res) => {
       return res.status(404).json({ error: "Payment not found" });
     }
 
+    const purchaseId = currentPayment.id;
+
     // 🕒 Работаем в UTC+3
     const now = new Date();
     const utc3 = new Date(now.getTime() + 3 * 60 * 60 * 1000);
@@ -67,7 +70,6 @@ router.post("/", async (req, res) => {
       if (createdUTC3 >= startOfMonth) totalMonth += p.amount;
     }
 
-    // Добавляем текущую сумму (в рублях)
     const currentAmountRub = Number(amount) / 100;
     totalDay += currentAmountRub;
     totalMonth += currentAmountRub;
@@ -84,14 +86,14 @@ router.post("/", async (req, res) => {
     let newStatus = "success";
 
     if (totalDay > dayLimit) {
-      refundReason = `Превышен дневной лимит суммы операций (${dayLimit.toLocaleString()}₽)`;
+      refundReason = `Превышен дневной лимит (${dayLimit}₽)`;
       newStatus = "pending_refund";
     } else if (totalMonth > monthLimit) {
-      refundReason = `Превышен месячный лимит суммы операций (${monthLimit.toLocaleString()}₽)`;
+      refundReason = `Превышен месячный лимит (${monthLimit}₽)`;
       newStatus = "pending_refund";
     }
 
-    // 💾 Обновляем статус в БД
+    // 💾 Обновляем статус в purchases
     const { error: updateErr } = await supabase
       .from("purchases")
       .update({
@@ -104,15 +106,71 @@ router.post("/", async (req, res) => {
 
     if (updateErr) throw updateErr;
 
+    // ⚙️ Если лимиты превышены — просто выходим
     if (refundReason) {
       console.log(`⚠️ Payment ${qrcId} flagged for refund: ${refundReason}`);
-    } else {
-      console.log(`✅ Payment ${qrcId} marked as SUCCESS`);
+      return res.status(200).json({ result: "ok (refund pending)" });
     }
 
-    return res.status(200).json({ result: "ok" });
-  } catch (err) {
-    console.error("❌ Webhook processing failed:", err);
+    console.log(`✅ Payment ${qrcId} marked as SUCCESS`);
+
+    // 🔍 Ищем во второй таблице запись по id из purchases
+    const { data: odinOrder, error: odinErr } = await supabase
+      .from("odin_orders_history")
+      .select("id, steam_login, amount")
+      .eq("id", purchaseId)
+      .maybeSingle();
+
+    if (odinErr) throw odinErr;
+
+    // ⚠️ Если не нашли — ничего не делаем
+    if (!odinOrder) {
+      console.log(`ℹ️ Odin order not found for id = ${purchaseId}, skipping Steam topup`);
+      return res.status(200).json({ result: "ok" });
+    }
+
+    // 🟢 Обновляем статус во второй таблице
+    await supabase
+      .from("odin_orders_history")
+      .update({ status: "success" })
+      .eq("id", purchaseId);
+
+    // ⚡ Получаем курс Steam
+    const exchangeRes = await axios.get(
+      "https://desslyhub.com/api/v1/exchange_rate/steam/5",
+      {
+        headers: { apikey: "40a2cbac635f46a280a9e9fd7a5c5b20" },
+      }
+    );
+
+    const exchangeRate = exchangeRes.data.exchange_rate;
+    const steamAmount = odinOrder.amount / exchangeRate;
+
+    console.log(`💱 Exchange rate: ${exchangeRate}, Steam amount: ${steamAmount}`);
+
+    // 💰 Отправляем пополнение Steam
+    const topupRes = await axios.post(
+      "https://desslyhub.com/api/v1/service/steamtopup/topup",
+      {
+        amount: steamAmount,
+        username: odinOrder.steam_login,
+      },
+      {
+        headers: {
+          apikey: "40a2cbac635f46a280a9e9fd7a5c5b20",
+          "content-type": "application/json",
+        },
+      }
+    );
+
+    console.log("🎮 Steam topup result:", topupRes.data);
+
+    return res.status(200).json({
+      result: "ok",
+      steam_transaction: topupRes.data,
+    });
+  } catch (err: any) {
+    console.error("❌ Webhook processing failed:", err.response?.data || err.message);
     return res.status(500).json({ error: "Internal server error" });
   }
 });
