@@ -1,8 +1,5 @@
 import express from "express";
-import axios from "axios";
-import https from "https";
 import { createClient } from "@supabase/supabase-js";
-import { v4 as uuidv4 } from "uuid";
 
 const router = express.Router();
 router.use(express.json());
@@ -44,7 +41,6 @@ router.post("/", async (req, res) => {
     // 🕒 Работаем в UTC+3
     const now = new Date();
     const utc3 = new Date(now.getTime() + 3 * 60 * 60 * 1000);
-
     const startOfDay = new Date(utc3);
     startOfDay.setHours(0, 0, 0, 0);
     const startOfMonth = new Date(utc3.getFullYear(), utc3.getMonth(), 1);
@@ -85,109 +81,31 @@ router.post("/", async (req, res) => {
     const monthLimit = 100_000;
 
     let refundReason = null;
-    let statusToSet = null; // null — оставляем прежний
+    let newStatus = "success";
 
     if (totalDay > dayLimit) {
       refundReason = `Превышен дневной лимит суммы операций (${dayLimit.toLocaleString()}₽)`;
-      statusToSet = "refund";
+      newStatus = "pending_refund";
     } else if (totalMonth > monthLimit) {
       refundReason = `Превышен месячный лимит суммы операций (${monthLimit.toLocaleString()}₽)`;
-      statusToSet = "refund";
-    } else {
-      // Лимит не превышен, оставляем success
-      statusToSet = "success";
+      newStatus = "pending_refund";
     }
 
-    // 💾 Обновляем запись в БД только если нужно
-    if (statusToSet) {
-      const { error: updateErr } = await supabase
-        .from("purchases")
-        .update({
-          sndpam: sndPam,
-          payer_phone: sndPhoneMasked,
-          status: statusToSet,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("qr_id", qrcId);
+    // 💾 Обновляем статус в БД
+    const { error: updateErr } = await supabase
+      .from("purchases")
+      .update({
+        sndpam: sndPam,
+        payer_phone: sndPhoneMasked,
+        status: newStatus,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("qr_id", qrcId);
 
-      if (updateErr) throw updateErr;
-    }
+    if (updateErr) throw updateErr;
 
-    // 🔁 Если превышен лимит — делаем возврат через ЦФТ
     if (refundReason) {
-      console.log(`🔁 Initiating refund for ${qrcId}: ${refundReason}`);
-
-      const refundBody = {
-        longWait: false,
-        internalTxId: uuidv4().replace(/-/g, "").slice(0, 32),
-        refId: `refund-${qrcId}`,
-        refType: "qrcId",
-        refData: qrcId,
-        remitInfo: refundReason,
-      };
-
-      const pfxBuffer = Buffer.from(process.env.CFT_PFX_BASE64, "base64");
-      const agent = new https.Agent({
-        pfx: pfxBuffer,
-        passphrase: process.env.CFT_PFX_PASSWORD,
-        rejectUnauthorized: true,
-      });
-
-      try {
-        const refundRes = await axios.post(
-          process.env.CFT_REFUND_URL,
-          refundBody,
-          {
-            headers: {
-              "Content-Type": "application/json",
-              authsp: process.env.CFT_PROD_AUTHSP || "socium-bank.ru",
-            },
-            httpsAgent: agent,
-            timeout: 15000,
-          }
-        );
-
-        console.log(
-          `✅ Refund ${qrcId} completed:`,
-          `internalTxId=${refundRes.data.internalTxId}`,
-          `status=${refundRes.data.status}`,
-          `amount=${refundRes.data.amount}`
-        );
-
-        // Если возврат успешен — ставим refund
-        if (refundRes.data.status === 0) {
-          await supabase
-            .from("purchases")
-            .update({ status: "refund", updated_at: new Date().toISOString() })
-            .eq("qr_id", qrcId);
-        }
-      } catch (refundErr) {
-        if (refundErr.response) {
-          console.error(
-            "❌ Refund request failed with response:",
-            refundErr.response.status,
-            refundErr.response.data
-          );
-
-          // Если 502 — помечаем pending_refund
-          if (refundErr.response.status === 502) {
-            await supabase
-              .from("purchases")
-              .update({
-                status: "pending_refund",
-                updated_at: new Date().toISOString(),
-              })
-              .eq("qr_id", qrcId);
-          }
-        } else if (refundErr.request) {
-          console.error(
-            "❌ Refund request sent but no response received:",
-            refundErr.request
-          );
-        } else {
-          console.error("❌ Refund request setup error:", refundErr.message);
-        }
-      }
+      console.log(`⚠️ Payment ${qrcId} flagged for refund: ${refundReason}`);
     } else {
       console.log(`✅ Payment ${qrcId} marked as SUCCESS`);
     }
