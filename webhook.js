@@ -47,7 +47,6 @@ router.post("/", async (req, res) => {
 
     const startOfDay = new Date(utc3);
     startOfDay.setHours(0, 0, 0, 0);
-
     const startOfMonth = new Date(utc3.getFullYear(), utc3.getMonth(), 1);
 
     // 🔎 Берём все успешные платежи за этот месяц/день (кроме текущего)
@@ -68,12 +67,11 @@ router.post("/", async (req, res) => {
     for (const p of payments || []) {
       const created = new Date(p.created_at);
       const createdUTC3 = new Date(created.getTime() + 3 * 60 * 60 * 1000);
-
       if (createdUTC3 >= startOfDay) totalDay += p.amount;
       if (createdUTC3 >= startOfMonth) totalMonth += p.amount;
     }
 
-    // Добавляем текущую сумму (в рублях)
+    // Добавляем текущую сумму (в рублях, т.к. в БД рубли)
     const currentAmountRub = Number(amount) / 100;
     totalDay += currentAmountRub;
     totalMonth += currentAmountRub;
@@ -124,7 +122,6 @@ router.post("/", async (req, res) => {
       };
 
       const pfxBuffer = Buffer.from(process.env.CFT_PFX_BASE64, "base64");
-
       const agent = new https.Agent({
         pfx: pfxBuffer,
         passphrase: process.env.CFT_PFX_PASSWORD,
@@ -147,7 +144,21 @@ router.post("/", async (req, res) => {
 
         console.log("✅ Refund response:", refundRes.data);
       } catch (refundErr) {
-        console.error("❌ Refund request failed:", refundErr.message);
+        // Полное логирование ошибки
+        if (refundErr.response) {
+          console.error(
+            "❌ Refund request failed with response:",
+            refundErr.response.status,
+            refundErr.response.data
+          );
+        } else if (refundErr.request) {
+          console.error(
+            "❌ Refund request sent but no response received:",
+            refundErr.request
+          );
+        } else {
+          console.error("❌ Refund request setup error:", refundErr.message);
+        }
       }
     } else {
       console.log(`✅ Payment ${qrcId} marked as SUCCESS`);
