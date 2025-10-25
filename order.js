@@ -127,8 +127,8 @@ router.post("/", async (req, res) => {
       amount: Number(amount),
       paymentPurpose: `Odin-god-steam - Пополнение Steam`,
       qrcType: "02",
-      expDt: 5,
-      localExpDt: 300,
+      expDt: 25,
+      localExpDt: 1500,
     };
 
     if (!process.env.CFT_PFX_BASE64 || !process.env.CFT_PFX_PASSWORD) {
