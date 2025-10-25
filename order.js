@@ -1,6 +1,5 @@
 import express from "express";
-import cors from "cors"; // <-- добавляем
-
+import cors from "cors";
 import { createClient } from "@supabase/supabase-js";
 import { v4 as uuidv4 } from "uuid";
 import axios from "axios";
@@ -11,34 +10,54 @@ const router = express.Router();
 // 🟢 Настройка CORS
 router.use(
   cors({
-    origin: "https://odin-god-steam.ru", // разрешённый фронт
-    methods: ["POST"],                    // только POST
-    allowedHeaders: ["Content-Type"],     // разрешённые заголовки
+    origin: "https://odin-god-steam.ru",
+    methods: ["POST"],
+    allowedHeaders: ["Content-Type"],
   })
 );
 
-// 🔑 Инициализация Supabase
+// 🔑 Supabase
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
-// 📦 POST /api/order — регистрация QR в ЦФТ (продакшн)
+// 📬 Telegram настройки
+const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
+
+// 🧠 Хелпер для уведомления в Telegram
+async function sendTelegramMessage(text) {
+  if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) {
+    console.warn("⚠️ TELEGRAM_BOT_TOKEN или TELEGRAM_CHAT_ID не заданы");
+    return;
+  }
+
+  const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
+  try {
+    await axios.post(url, {
+      chat_id: TELEGRAM_CHAT_ID,
+      text,
+      parse_mode: "HTML",
+    });
+  } catch (err) {
+    console.error("❌ Ошибка отправки Telegram:", err.response?.data || err.message);
+  }
+}
+
+// 📦 POST /api/order
 router.post("/", async (req, res) => {
   try {
     const { steamId, amount, api_login, api_key } = req.body;
 
-    // ✅ Проверка обязательных полей
     if (!steamId || !amount || !api_login || !api_key) {
       return res.status(400).json({ error: "Missing required fields" });
     }
 
-    // ✅ Ping-тест
-    if (steamId === "ping") {
-      return res.status(200).json({ result: "pong" });
-    }
+    // 🧩 Ping-тест
+    if (steamId === "ping") return res.status(200).json({ result: "pong" });
 
-    // 🔍 Проверка API-клиента в Supabase
+    // 🔍 Проверка API-клиента
     const { data: client, error: clientErr } = await supabase
       .from("api_clients")
       .select("api_login, api_key")
@@ -53,7 +72,25 @@ router.post("/", async (req, res) => {
     const operationId = uuidv4();
     const now = new Date().toISOString();
 
-    // 🔧 Подготовка тела запроса для ЦФТ
+    // 🧠 Если это odin-god-steam — логируем в историю и Telegram
+    if (api_login === "odin-god-steam") {
+      // 💾 Добавляем запись в таблицу odin_orders_history
+      await supabase.from("odin_orders_history").insert([
+        {
+          id: operationId,
+          steam_login: steamId,
+          amount: Number(amount / 100),
+          created_at: now,
+        },
+      ]);
+
+      // 📲 Уведомление в Telegram
+      await sendTelegramMessage(
+        `⚡ <b>Новый заказ ODIN-GOD-STEAM</b>\n\n👤 Steam ID: <code>${steamId}</code>\n💰 Сумма: <b>${amount / 100}₽</b>\n🕒 ${now}`
+      );
+    }
+
+    // 🔧 Тело запроса для ЦФТ
     const qrRequestBody = {
       extEntityId: process.env.CFT_EXT_ENTITY_ID,
       merchantId: process.env.CFT_MERCHANT_ID,
@@ -65,7 +102,6 @@ router.post("/", async (req, res) => {
       localExpDt: 300,
     };
 
-    // 🌐 PFX сертификат из base64 (Render Secret)
     if (!process.env.CFT_PFX_BASE64 || !process.env.CFT_PFX_PASSWORD) {
       return res.status(500).json({ error: "PFX base64 or password not set in environment" });
     }
@@ -78,7 +114,6 @@ router.post("/", async (req, res) => {
       rejectUnauthorized: true,
     });
 
-    // 🌐 Отправка запроса в ЦФТ
     const cftUrl = process.env.CFT_PROD_URL || "https://zkc2b-socium.koronacard.ru/points/qr";
 
     console.log("🚀 Отправляем запрос в ЦФТ:", cftUrl, qrRequestBody);
@@ -95,17 +130,14 @@ router.post("/", async (req, res) => {
     console.log("📥 Ответ от ЦФТ:", JSON.stringify(qrResponse.data, null, 2));
 
     const { qrcId, payload } = qrResponse.data;
+    if (!qrcId || !payload) return res.status(502).json({ error: "Invalid response from CFT" });
 
-    if (!qrcId || !payload) {
-      return res.status(502).json({ error: "Invalid response from CFT" });
-    }
-
-    // 💾 Сохраняем запись в Supabase
+    // 💾 Запись в purchases
     const { error: insertErr } = await supabase.from("purchases").insert([
       {
-        id: String(operationId),
+        id: operationId,
         steam_login: steamId,
-        amount: Number(amount/100),
+        amount: Number(amount / 100),
         status: "pending",
         api_login,
         qr_id: qrcId,
@@ -117,21 +149,18 @@ router.post("/", async (req, res) => {
 
     if (insertErr) throw insertErr;
 
-    // ✅ Возвращаем клиенту данные
+    // ✅ Ответ клиенту
     return res.status(201).json({
       result: {
-        operation_id: String(operationId), // наш UUID
-        qr_id: qrcId,              // от ЦФТ
-        qr_payload: payload,       // ссылка на QR
+        operation_id: operationId,
+        qr_id: qrcId,
+        qr_payload: payload,
       },
     });
   } catch (err) {
     console.error("❌ Ошибка /api/order:", err.response?.data || err.message);
     return res.status(500).json({
-      error:
-        err.response?.data?.error ||
-        err.message ||
-        "Internal Server Error",
+      error: err.response?.data?.error || err.message || "Internal Server Error",
     });
   }
 });
