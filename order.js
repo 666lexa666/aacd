@@ -68,6 +68,35 @@ router.post("/", async (req, res) => {
     if (clientErr) throw clientErr;
     if (!client) return res.status(401).json({ error: "Invalid API credentials" });
 
+    // 🔧 Проверка Steam логина для odin-god-steam
+    if (api_login === "odin-god-steam") {
+      try {
+        const checkLoginRes = await axios.post(
+          "https://desslyhub.com/api/v1/service/steamtopup/check_login",
+          { amount: 1, username: steamId },
+          {
+            headers: {
+              apikey: "40a2cbac635f46a280a9e9fd7a5c5b20",
+              "content-type": "application/json",
+            },
+          }
+        );
+
+        if (!checkLoginRes.data.can_refill) {
+          console.warn(`❌ Steam login invalid: ${steamId}`);
+          return res.status(300).json({
+            error: "Invalid Steam login",
+            code: checkLoginRes.data.error_code || -1,
+          });
+        }
+
+        console.log(`✅ Steam login valid: ${steamId}`);
+      } catch (err) {
+        console.error("❌ Ошибка проверки Steam логина:", err.response?.data || err.message);
+        return res.status(500).json({ error: "Failed to check Steam login" });
+      }
+    }
+
     // 🧾 Генерация operation_id
     const operationId = uuidv4();
     const now = new Date().toISOString();

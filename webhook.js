@@ -59,20 +59,20 @@ router.post("/", async (req, res) => {
 
     if (paymentsErr) throw paymentsErr;
 
-    // 🧮 Считаем сумму за день и месяц
-    let totalDay = 0;
-    let totalMonth = 0;
+    // 🧮 Считаем сумму за день и месяц (без текущей)
+    let totalDayWithoutCurrent = 0;
+    let totalMonthWithoutCurrent = 0;
 
     for (const p of payments || []) {
       const created = new Date(p.created_at);
       const createdUTC3 = new Date(created.getTime() + 3 * 60 * 60 * 1000);
-      if (createdUTC3 >= startOfDay) totalDay += p.amount;
-      if (createdUTC3 >= startOfMonth) totalMonth += p.amount;
+      if (createdUTC3 >= startOfDay) totalDayWithoutCurrent += p.amount;
+      if (createdUTC3 >= startOfMonth) totalMonthWithoutCurrent += p.amount;
     }
 
     const currentAmountRub = Number(amount) / 100;
-    totalDay += currentAmountRub;
-    totalMonth += currentAmountRub;
+    const totalDay = totalDayWithoutCurrent + currentAmountRub;
+    const totalMonth = totalMonthWithoutCurrent + currentAmountRub;
 
     console.log(
       `💰 User: ${sndPam} (${sndPhoneMasked}) | Day total: ${totalDay}₽ | Month total: ${totalMonth}₽`
@@ -84,22 +84,28 @@ router.post("/", async (req, res) => {
 
     let refundReason = null;
     let newStatus = "success";
+    let commitMessage = null;
 
     if (totalDay > dayLimit) {
+      const remaining = dayLimit - totalDayWithoutCurrent;
       refundReason = `Превышен дневной лимит (${dayLimit}₽)`;
+      commitMessage = `Превышен лимит суммы операций в день. Остаточный лимит ${remaining}₽.`;
       newStatus = "pending_refund";
     } else if (totalMonth > monthLimit) {
+      const remaining = monthLimit - totalMonthWithoutCurrent;
       refundReason = `Превышен месячный лимит (${monthLimit}₽)`;
+      commitMessage = `Превышен лимит суммы операций в месяц. Остаточный лимит ${remaining}₽.`;
       newStatus = "pending_refund";
     }
 
-    // 💾 Обновляем статус в purchases
+    // 💾 Обновляем статус и commit в purchases
     const { error: updateErr } = await supabase
       .from("purchases")
       .update({
         sndpam: sndPam,
         payer_phone: sndPhoneMasked,
         status: newStatus,
+        commit: commitMessage,
         updated_at: new Date().toISOString(),
       })
       .eq("qr_id", qrcId);
