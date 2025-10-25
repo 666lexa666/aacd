@@ -71,7 +71,7 @@ router.post("/", async (req, res) => {
       if (createdUTC3 >= startOfMonth) totalMonth += p.amount;
     }
 
-    // Добавляем текущую сумму (в рублях, т.к. в БД рубли)
+    // Добавляем текущую сумму (в рублях)
     const currentAmountRub = Number(amount) / 100;
     totalDay += currentAmountRub;
     totalMonth += currentAmountRub;
@@ -84,32 +84,37 @@ router.post("/", async (req, res) => {
     const dayLimit = 10_000;
     const monthLimit = 100_000;
 
-    let newStatus = "success";
     let refundReason = null;
+    let statusToSet = null; // null — оставляем прежний
 
     if (totalDay > dayLimit) {
       refundReason = `Превышен дневной лимит суммы операций (${dayLimit.toLocaleString()}₽)`;
-      newStatus = "refund";
+      statusToSet = "refund";
     } else if (totalMonth > monthLimit) {
       refundReason = `Превышен месячный лимит суммы операций (${monthLimit.toLocaleString()}₽)`;
-      newStatus = "refund";
+      statusToSet = "refund";
+    } else {
+      // Лимит не превышен, оставляем success
+      statusToSet = "success";
     }
 
-    // 💾 Обновляем запись в БД
-    const { error: updateErr } = await supabase
-      .from("purchases")
-      .update({
-        sndpam: sndPam,
-        payer_phone: sndPhoneMasked,
-        status: newStatus,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("qr_id", qrcId);
+    // 💾 Обновляем запись в БД только если нужно
+    if (statusToSet) {
+      const { error: updateErr } = await supabase
+        .from("purchases")
+        .update({
+          sndpam: sndPam,
+          payer_phone: sndPhoneMasked,
+          status: statusToSet,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("qr_id", qrcId);
 
-    if (updateErr) throw updateErr;
+      if (updateErr) throw updateErr;
+    }
 
     // 🔁 Если превышен лимит — делаем возврат через ЦФТ
-    if (newStatus === "refund") {
+    if (refundReason) {
       console.log(`🔁 Initiating refund for ${qrcId}: ${refundReason}`);
 
       const refundBody = {
@@ -148,14 +153,32 @@ router.post("/", async (req, res) => {
           `status=${refundRes.data.status}`,
           `amount=${refundRes.data.amount}`
         );
+
+        // Если возврат успешен — ставим refund
+        if (refundRes.data.status === 0) {
+          await supabase
+            .from("purchases")
+            .update({ status: "refund", updated_at: new Date().toISOString() })
+            .eq("qr_id", qrcId);
+        }
       } catch (refundErr) {
-        // Полное логирование ошибки
         if (refundErr.response) {
           console.error(
             "❌ Refund request failed with response:",
             refundErr.response.status,
             refundErr.response.data
           );
+
+          // Если 502 — помечаем pending_refund
+          if (refundErr.response.status === 502) {
+            await supabase
+              .from("purchases")
+              .update({
+                status: "pending_refund",
+                updated_at: new Date().toISOString(),
+              })
+              .eq("qr_id", qrcId);
+          }
         } else if (refundErr.request) {
           console.error(
             "❌ Refund request sent but no response received:",
