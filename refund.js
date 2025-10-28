@@ -44,8 +44,6 @@ router.post("/", async (req, res) => {
     rcvBankMemberId: BANK_MEMBER_ID,
   };
 
-  if (payment.payer_phone) payload.rcvPhone = payment.payer_phone;
-
   // 🔹 Настраиваем PFX агент
   if (!process.env.CFT_PFX_BASE64 || !process.env.CFT_PFX_PASSWORD) {
     return res.status(500).json({ error: "PFX base64 or password not set in environment" });
