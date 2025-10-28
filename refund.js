@@ -25,13 +25,12 @@ router.post("/", async (req, res) => {
     .from("purchases")
     .select("*")
     .eq("qr_id", qr_id)
-    .limit(1)
-    .single();
+    .limit(1);
 
   if (error) return res.status(500).json({ error: error.message });
-  if (!payments) return res.status(404).json({ error: "Payment not found" });
+  if (!payments || payments.length === 0) return res.status(404).json({ error: "Payment not found" });
 
-  const payment = payments;
+  const payment = payments[0];
 
   // 🔹 Формируем payload для банка
   const payload = {
@@ -43,6 +42,9 @@ router.post("/", async (req, res) => {
     remitInfo: payment.commit || `Возврат покупки ${payment.id}`,
     rcvBankMemberId: BANK_MEMBER_ID,
   };
+
+  console.log("➡️  Отправляем запрос в банк:");
+  console.log(JSON.stringify(payload, null, 2));
 
   // 🔹 Настраиваем PFX агент
   if (!process.env.CFT_PFX_BASE64 || !process.env.CFT_PFX_PASSWORD) {
@@ -65,11 +67,21 @@ router.post("/", async (req, res) => {
       agent,
     });
 
-    const result = await response.json();
+    const resultText = await response.text();
+    let result;
+    try {
+      result = JSON.parse(resultText);
+    } catch (e) {
+      result = { raw: resultText };
+    }
 
-    // 🔹 Возвращаем ответ банка клиенту
+    console.log(`⬅️  Ответ банка (HTTP ${response.status}):`);
+    console.log(JSON.stringify(result, null, 2));
+
+    // 🔹 Возвращаем клиенту
     return res.status(response.status).json(result);
   } catch (err) {
+    console.error("❌ Ошибка при запросе к банку:", err);
     return res.status(500).json({ error: err.message });
   }
 });
