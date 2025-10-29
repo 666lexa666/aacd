@@ -1,89 +1,157 @@
-import express from "express";
+import axios from "axios";
 import https from "https";
-import fetch from "node-fetch";
 import { createClient } from "@supabase/supabase-js";
 
-const router = express.Router();
+const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-// 🔹 Supabase
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-);
-
-// 🔹 Конфиг банка
-const BANK_URL = "https://zkc2b-socium.koronacard.ru/refund/order";
-const BANK_MEMBER_ID = "100000000223"; // Статический
-
-// POST /api/refund
-router.post("/", async (req, res) => {
-  const { qr_id } = req.body;
-  if (!qr_id) return res.status(400).json({ error: "qr_id required" });
-
-  // 🔹 Находим платеж в Supabase
-  const { data: payments, error } = await supabase
-    .from("purchases")
-    .select("*")
-    .eq("qr_id", qr_id)
-    .limit(1);
-
-  if (error) return res.status(500).json({ error: error.message });
-  if (!payments || payments.length === 0) return res.status(404).json({ error: "Payment not found" });
-
-  const payment = payments[0];
-
-  // 🔹 Формируем payload для банка
-  const payload = {
-    internalTxId: `refund_${Date.now()}`,
-    refId: `refund_${Date.now()}`,
-    refType: "qrcId",
-    refData: payment.qr_id,
-    amount: Math.round(parseFloat(payment.amount) * 100), // рубли → копейки
-    remitInfo: payment.commit || `Возврат покупки ${payment.id}`,
-    rcvBankMemberId: BANK_MEMBER_ID,
-  };
-
-  console.log("➡️  Отправляем запрос в банк:");
-  console.log(JSON.stringify(payload, null, 2));
-
-  // 🔹 Настраиваем PFX агент
-  if (!process.env.CFT_PFX_BASE64 || !process.env.CFT_PFX_PASSWORD) {
-    return res.status(500).json({ error: "PFX base64 or password not set in environment" });
-  }
-
-  const pfxBuffer = Buffer.from(process.env.CFT_PFX_BASE64, "base64");
-  const agent = new https.Agent({
-    pfx: pfxBuffer,
-    passphrase: process.env.CFT_PFX_PASSWORD,
-    rejectUnauthorized: true,
-  });
-
+export default async function handler(req, res) {
   try {
-    // 🔹 Отправляем POST запрос в банк
-    const response = await fetch(BANK_URL, {
-      method: "POST",
-      body: JSON.stringify(payload),
-      headers: { "Content-Type": "application/json" },
-      agent,
-    });
+    if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
-    const resultText = await response.text();
-    let result;
-    try {
-      result = JSON.parse(resultText);
-    } catch (e) {
-      result = { raw: resultText };
+    const { qrc_id } = req.body;
+    if (!qrc_id) return res.status(400).json({ error: "qrc_id is required" });
+
+    // ⏱ Ждём 5 секунд перед началом
+    await delay(5000);
+
+    // ⚙️ Получаем запись из purchases
+    const { data: purchase, error } = await supabase
+      .from("purchases")
+      .select("*")
+      .eq("qr_id", qrc_id)
+      .single();
+
+    if (error || !purchase) {
+      console.error("❌ Покупка не найдена:", error);
+      return res.status(404).json({ error: "Purchase not found" });
     }
 
-    console.log(`⬅️  Ответ банка (HTTP ${response.status}):`);
-    console.log(JSON.stringify(result, null, 2));
+    const { amount, commit, refund_attempts = 0, api_login, steam_login } = purchase;
 
-    // 🔹 Возвращаем клиенту
-    return res.status(response.status).json(result);
+    if (!process.env.CFT_PFX_BASE64 || !process.env.CFT_PFX_PASSWORD) {
+      return res.status(500).json({ error: "CFT_PFX_BASE64 or password not set" });
+    }
+
+    // 🔒 Настраиваем HTTPS агент для mTLS
+    const pfxBuffer = Buffer.from(process.env.CFT_PFX_BASE64, "base64");
+    const httpsAgent = new https.Agent({
+      pfx: pfxBuffer,
+      passphrase: process.env.CFT_PFX_PASSWORD,
+      rejectUnauthorized: true,
+    });
+
+    const refundUrl = process.env.CFT_REFUND_URL;
+    const refId = `${qrc_id}-${Date.now()}`;
+
+    // 📦 Формируем тело запроса
+    const refundBody = {
+      longWait: false,
+      refId,
+      internalTxId: commit || undefined,
+      amount: amount * 100, // в копейках
+      refType: "qrcId",
+      refData: qrc_id,
+      remitInfo: "Возврат по покупке",
+    };
+
+    console.log("🔁 Попытка возврата №", refund_attempts + 1, "для", qrc_id);
+
+    const response = await axios.post(refundUrl, refundBody, {
+      headers: {
+        "Content-Type": "application/json",
+        authsp: process.env.CFT_PROD_AUTHSP || "socium-bank.ru",
+      },
+      timeout: 30000,
+      httpsAgent,
+      validateStatus: () => true,
+    });
+
+    const { status } = response;
+
+    if (status === 200 || status === 202) {
+      console.log("✅ Возврат успешен:", response.data);
+
+      await supabase
+        .from("purchases")
+        .update({ status: "refund", refund_attempts: refund_attempts + 1 })
+        .eq("qr_id", qrc_id);
+
+      // 🧠 Ищем client_id по steam_login
+      let client_id = null;
+      const { data: client } = await supabase
+        .from("client")
+        .select("id_client")
+        .eq("steam_login", steam_login)
+        .single();
+      if (client) client_id = client.id_client;
+
+      // 📢 Уведомление в Telegram об успешном возврате
+      const successMsg = `
+✅ *Возврат средств выполнен успешно!*
+QR: \`${qrc_id}\`
+Партнёр: \`${api_login || "N/A"}\`
+Steam: \`${steam_login || "N/A"}\`
+${client_id ? `ID клиента: \`${client_id}\`\n` : ""}
+Commit: \`${commit || "N/A"}\`
+Сумма: *${amount} ₽*
+Status: ${status}
+      `;
+
+      await axios.post(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
+        chat_id: process.env.TELEGRAM_CHAT_ID,
+        text: successMsg,
+        parse_mode: "Markdown",
+      });
+
+      return res.status(200).json({ success: true, data: response.data });
+    } else {
+      console.error("⚠️ Ошибка возврата:", response.status, response.data);
+
+      const newAttempts = refund_attempts + 1;
+
+      if (newAttempts < 5) {
+        await supabase.from("purchases").update({ refund_attempts: newAttempts }).eq("qr_id", qrc_id);
+        console.log(`🔁 Повторная попытка через 5 секунд (${newAttempts}/5)`);
+        await delay(5000);
+        return handler(req, res);
+      } else {
+        await supabase
+          .from("purchases")
+          .update({ status: "failed_refund", refund_attempts: newAttempts })
+          .eq("qr_id", qrc_id);
+
+        let client_id = null;
+        const { data: client } = await supabase
+          .from("client")
+          .select("id_client")
+          .eq("steam_login", steam_login)
+          .single();
+        if (client) client_id = client.id_client;
+
+        // 🚨 Telegram уведомление об ошибке
+        const failMsg = `
+🚨 *Ошибка возврата средств*
+QR: \`${qrc_id}\`
+Партнёр: \`${api_login || "N/A"}\`
+Steam: \`${steam_login || "N/A"}\`
+${client_id ? `ID клиента: \`${client_id}\`\n` : ""}
+Попыток: ${newAttempts}
+Status: \`${response.status}\`
+Message: ${JSON.stringify(response.data)}
+        `;
+
+        await axios.post(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
+          chat_id: process.env.TELEGRAM_CHAT_ID,
+          text: failMsg,
+          parse_mode: "Markdown",
+        });
+
+        return res.status(500).json({ error: "Refund failed after 5 attempts" });
+      }
+    }
   } catch (err) {
-    console.error("❌ Ошибка при запросе к банку:", err);
+    console.error("💥 Ошибка в refund.js:", err);
     return res.status(500).json({ error: err.message });
   }
-});
-
-export default router;
+}

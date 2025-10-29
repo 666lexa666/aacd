@@ -112,9 +112,19 @@ router.post("/", async (req, res) => {
 
     if (updateErr) throw updateErr;
 
-    // ⚙️ Если лимиты превышены — просто выходим
+    // ⚙️ Если лимиты превышены — отправляем запрос на refund
     if (refundReason) {
       console.log(`⚠️ Payment ${qrcId} flagged for refund: ${refundReason}`);
+      
+      try {
+        const refundRes = await axios.post("https://steam-back.onrender.com/api/refund", {
+          qrcId,
+        });
+        console.log("💸 Refund API response:", refundRes.data);
+      } catch (refundErr) {
+        console.error("❌ Refund API request failed:", refundErr.response?.data || refundErr.message);
+      }
+
       return res.status(200).json({ result: "ok (refund pending)" });
     }
 
