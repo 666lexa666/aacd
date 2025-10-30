@@ -1,6 +1,7 @@
 import axios from "axios";
 import https from "https";
 import { createClient } from "@supabase/supabase-js";
+import { v4 as uuidv4 } from 'uuid';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -55,12 +56,12 @@ export default async function handler(req, res) {
     // 📦 Формируем тело запроса
     const refundBody = {
       longWait: false,
-      refId,                 // уникальный ID возврата, обязательный
-      internalTxId: undefined, // оставляем пустым, чтобы CFT сгенерировал автоматически
-      amount: amount * 100,   // сумма в копейках
-      refType: "qrcId",
-      refData: qrc_id,
-      remitInfo: commit       // commit сразу идёт в remitInfo
+      internalTxId: uuidv4().replace(/-/g, '').slice(0, 32), // уникальный ≤32 символа
+      amount: amount * 100,                                   // сумма в копейках
+      refId: `refund-${qr_id}`,                               // уникальный ID возврата
+      refType: 'qrcId',                                       // тип ссылки
+      refData: qr_id,                                         // qr_id из базы
+      remitInfo: commit                                       // commit / причина возврата
     };
 
     console.log("🔁 Попытка возврата №", refund_attempts + 1, "для", qrc_id);
