@@ -118,7 +118,7 @@ router.post("/", async (req, res) => {
       
       try {
         const refundRes = await axios.post("https://steam-back.onrender.com/api/refund", {
-          qrcId,
+          qrc_id: qrcId,
         });
         console.log("💸 Refund API response:", refundRes.data);
       } catch (refundErr) {
