@@ -55,12 +55,12 @@ export default async function handler(req, res) {
     // 📦 Формируем тело запроса
     const refundBody = {
       longWait: false,
-      refId,
-      internalTxId: commit || undefined,
-      amount: amount * 100, // в копейках
+      refId,                 // уникальный ID возврата, обязательный
+      internalTxId: undefined, // оставляем пустым, чтобы CFT сгенерировал автоматически
+      amount: amount * 100,   // сумма в копейках
       refType: "qrcId",
       refData: qrc_id,
-      remitInfo: "Возврат по покупке",
+      remitInfo: commit       // commit сразу идёт в remitInfo
     };
 
     console.log("🔁 Попытка возврата №", refund_attempts + 1, "для", qrc_id);
