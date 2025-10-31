@@ -89,13 +89,11 @@ router.post("/", async (req, res) => {
     if (totalDay > dayLimit) {
       const remaining = dayLimit - totalDayWithoutCurrent;
       refundReason = `Превышен дневной лимит (${dayLimit}₽)`;
-      commitMessage = `Превышен лимит суммы операций в день. Остаточный лимит ${remaining}рублей.`;
-      newStatus = "pending_refund";
+      commitMessage = `Превышен лимит суммы операций в день. Остаточный лимит ${remaining}₽.`;
     } else if (totalMonth > monthLimit) {
       const remaining = monthLimit - totalMonthWithoutCurrent;
       refundReason = `Превышен месячный лимит (${monthLimit}₽)`;
-      commitMessage = `Превышен лимит суммы операций в месяц. Остаточный лимит ${remaining}рублей.`;
-      newStatus = "pending_refund";
+      commitMessage = `Превышен лимит суммы операций в месяц. Остаточный лимит ${remaining}₽.`;
     }
 
     // 💾 Обновляем статус и commit в purchases
@@ -112,20 +110,47 @@ router.post("/", async (req, res) => {
 
     if (updateErr) throw updateErr;
 
-    // ⚙️ Если лимиты превышены — отправляем запрос на refund
+    // ⚙️ Если лимиты превышены — просто ставим success и уведомляем в Telegram
     if (refundReason) {
-      console.log(`⚠️ Payment ${qrcId} flagged for refund: ${refundReason}`);
-      
+      console.log(`⚠️ Payment ${qrcId} превысил лимит: ${refundReason}`);
+
+      // 💾 На всякий случай обновляем статус повторно
+      const { error: fixErr } = await supabase
+        .from("purchases")
+        .update({
+          status: "success",
+          commit: commitMessage,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("qr_id", qrcId);
+
+      if (fixErr) console.error("❌ Ошибка при обновлении статуса:", fixErr);
+
+      // ✉️ Отправляем сообщение в Telegram
+      const tgText = `
+✅ *Возврат средств выполнен успешно!*
+QR: \`${qrcId}\`
+Партнёр: \`${sndPam || "N/A"}\`
+Steam: \`N/A\`
+Commit: \`${commitMessage || "N/A"}\`
+Сумма: *${currentAmountRub} ₽*
+Status: success
+Дата: ${new Date().toLocaleString("ru-RU")}
+`;
+
       try {
-        const refundRes = await axios.post("https://steam-back.onrender.com/api/refund", {
-          qrc_id: qrcId,
+        await axios.post(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
+          chat_id: process.env.TELEGRAM_CHAT_ID,
+          text: tgText,
+          parse_mode: "Markdown",
         });
-        console.log("💸 Refund API response:", refundRes.data);
-      } catch (refundErr) {
-        console.error("❌ Refund API request failed:", refundErr.response?.data || refundErr.message);
+
+        console.log("📨 Telegram уведомление отправлено.");
+      } catch (tgErr) {
+        console.error("❌ Ошибка при отправке в Telegram:", tgErr.response?.data || tgErr.message);
       }
 
-      return res.status(200).json({ result: "ok (refund pending)" });
+      return res.status(200).json({ result: "ok (refund replaced by TG notify)" });
     }
 
     console.log(`✅ Payment ${qrcId} marked as SUCCESS`);
@@ -139,7 +164,6 @@ router.post("/", async (req, res) => {
 
     if (odinErr) throw odinErr;
 
-    // ⚠️ Если не нашли — ничего не делаем
     if (!odinOrder) {
       console.log(`ℹ️ Odin order not found for id = ${purchaseId}, skipping Steam topup`);
       return res.status(200).json({ result: "ok" });
