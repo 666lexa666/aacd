@@ -110,6 +110,55 @@ router.post("/", async (req, res) => {
 
     if (updateErr) throw updateErr;
 
+    try {
+      // Находим steam_login из purchases
+      const { data: purchaseWithLogin, error: findPurchaseErr } = await supabase
+        .from("purchases")
+        .select("steam_login")
+        .eq("qr_id", qrcId)
+        .maybeSingle();
+    
+      if (findPurchaseErr) throw findPurchaseErr;
+    
+      if (purchaseWithLogin?.steam_login) {
+        const steamLogin = purchaseWithLogin.steam_login;
+    
+        // Обновляем данные клиента, если они ещё не заполнены
+        const { data: existingClient, error: clientErr } = await supabase
+          .from("clients")
+          .select("id, payer_phone, sndpam")
+          .eq("steam_login", steamLogin)
+          .maybeSingle();
+    
+        if (clientErr) throw clientErr;
+    
+        if (existingClient) {
+          if (!existingClient.payer_phone || !existingClient.sndpam) {
+            const { error: updateClientErr } = await supabase
+              .from("clients")
+              .update({
+                payer_phone: sndPhoneMasked,
+                sndpam: sndPam,
+                updated_at: new Date().toISOString(),
+              })
+              .eq("steam_login", steamLogin);
+    
+            if (updateClientErr) throw updateClientErr;
+    
+            console.log(
+              `👤 Client with steam_login ${steamLogin} updated with payer_phone and sndpam.`
+            );
+          }
+        } else {
+          console.warn(`⚠️ No client found for steam_login ${steamLogin}`);
+        }
+      } else {
+        console.warn(`⚠️ purchases entry for ${qrcId} has no steam_login`);
+      }
+    } catch (syncErr) {
+      console.error("❌ Error syncing client sndpam/payer_phone:", syncErr.message);
+    }
+
     // ⚙️ Если лимиты превышены — просто ставим success и уведомляем в Telegram
     if (refundReason) {
       console.log(`⚠️ Payment ${qrcId} превысил лимит: ${refundReason}`);
