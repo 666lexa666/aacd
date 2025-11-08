@@ -16,7 +16,7 @@ router.post("/", async (req, res) => {
   const timestamp = new Date().toISOString();
   const body = req.body;
 
-  console.log(`[${timestamp}] Webhook received:`, body);
+  console.log(`[${timestamp}] 📥 Webhook received:`, body);
 
   try {
     const { amount, qrcId, sndPam, sndPhoneMasked } = body;
@@ -96,7 +96,7 @@ router.post("/", async (req, res) => {
       commitMessage = `Превышен лимит суммы операций в месяц. Остаточный лимит ${remaining}₽.`;
     }
 
-    // 💾 Обновляем статус и commit в purchases
+    // 💾 Обновляем purchases
     const { error: updateErr } = await supabase
       .from("purchases")
       .update({
@@ -110,99 +110,72 @@ router.post("/", async (req, res) => {
 
     if (updateErr) throw updateErr;
 
+    // 👥 Обновление данных клиента
     try {
-      // Находим steam_login из purchases
-      const { data: purchaseWithLogin, error: findPurchaseErr } = await supabase
+      const { data: purchaseWithLogin } = await supabase
         .from("purchases")
         .select("steam_login")
         .eq("qr_id", qrcId)
         .maybeSingle();
-    
-      if (findPurchaseErr) throw findPurchaseErr;
-    
+
       if (purchaseWithLogin?.steam_login) {
         const steamLogin = purchaseWithLogin.steam_login;
-    
-        // Обновляем данные клиента, если они ещё не заполнены
-        const { data: existingClient, error: clientErr } = await supabase
+        const { data: existingClient } = await supabase
           .from("clients")
           .select("id, payer_phone, sndpam")
           .eq("steam_login", steamLogin)
           .maybeSingle();
-    
-        if (clientErr) throw clientErr;
-    
-        if (existingClient) {
-          if (!existingClient.payer_phone || !existingClient.sndpam) {
-            const { error: updateClientErr } = await supabase
-              .from("clients")
-              .update({
-                payer_phone: sndPhoneMasked,
-                sndpam: sndPam,
-                updated_at: new Date().toISOString(),
-              })
-              .eq("steam_login", steamLogin);
-    
-            if (updateClientErr) throw updateClientErr;
-    
-            console.log(
-              `👤 Client with steam_login ${steamLogin} updated with payer_phone and sndpam.`
-            );
-          }
-        } else {
-          console.warn(`⚠️ No client found for steam_login ${steamLogin}`);
+
+        if (existingClient && (!existingClient.payer_phone || !existingClient.sndpam)) {
+          await supabase
+            .from("clients")
+            .update({
+              payer_phone: sndPhoneMasked,
+              sndpam: sndPam,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("steam_login", steamLogin);
+
+          console.log(`👤 Client ${steamLogin} synced with phone & sndpam`);
         }
-      } else {
-        console.warn(`⚠️ purchases entry for ${qrcId} has no steam_login`);
       }
     } catch (syncErr) {
-      console.error("❌ Error syncing client sndpam/payer_phone:", syncErr.message);
+      console.error("⚠️ Error syncing client data:", syncErr.message);
     }
 
-    // ⚙️ Если лимиты превышены — просто ставим success и уведомляем в Telegram
+    // ⚙️ Если превышен лимит — вместо Telegram вызываем REFUND
     if (refundReason) {
-      console.log(`⚠️ Payment ${qrcId} превысил лимит: ${refundReason}`);
-
-      // 💾 На всякий случай обновляем статус повторно
-      const { error: fixErr } = await supabase
-        .from("purchases")
-        .update({
-          status: "success",
-          commit: commitMessage,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("qr_id", qrcId);
-
-      if (fixErr) console.error("❌ Ошибка при обновлении статуса:", fixErr);
-
-      // ✉️ Отправляем сообщение в Telegram
-      const tgText = `
-✅ *Возврат средств выполнен успешно!*
-QR: \`${qrcId}\`
-Партнёр: \`${sndPam || "N/A"}\`
-Steam: \`N/A\`
-Commit: \`${commitMessage || "N/A"}\`
-Сумма: *${currentAmountRub} ₽*
-Status: success
-Дата: ${new Date().toLocaleString("ru-RU")}
-`;
+      console.log(`🚫 Payment ${qrcId} превысил лимит: ${refundReason}`);
+      console.log(`➡️ Отправляем запрос на возврат для ${qrcId}`);
 
       try {
-        await axios.post(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
-          chat_id: process.env.TELEGRAM_CHAT_ID,
-          text: tgText,
-          parse_mode: "Markdown",
+        const refundResponse = await axios.post(
+          "https://refund-t62z.onrender.com/refund",
+          { qrc_id: qrcId },
+          { headers: { "Content-Type": "application/json" }, timeout: 20000 }
+        );
+
+        console.log("✅ REFUND API ответ:", refundResponse.status, refundResponse.data);
+
+        return res.status(200).json({
+          result: "refund_initiated",
+          refund_status: refundResponse.status,
+          refund_response: refundResponse.data,
         });
-
-        console.log("📨 Telegram уведомление отправлено.");
-      } catch (tgErr) {
-        console.error("❌ Ошибка при отправке в Telegram:", tgErr.response?.data || tgErr.message);
+      } catch (refundErr) {
+        console.error(
+          "❌ Ошибка при вызове refund API:",
+          refundErr.response?.data || refundErr.message
+        );
+        return res.status(502).json({
+          error: "refund_failed",
+          message: refundErr.message,
+          data: refundErr.response?.data,
+        });
       }
-
-      return res.status(200).json({ result: "ok (refund replaced by TG notify)" });
     }
 
-    console.log(`✅ Payment ${qrcId} marked as SUCCESS`);
+    console.log(`✅ Payment ${qrcId} marked as SUCCESS, no limits exceeded.`);
 
     // 🔍 Ищем во второй таблице запись по id из purchases
     const { data: odinOrder, error: odinErr } = await supabase
@@ -227,9 +200,7 @@ Status: success
     // ⚡ Получаем курс Steam
     const exchangeRes = await axios.get(
       "https://desslyhub.com/api/v1/exchange_rate/steam/5",
-      {
-        headers: { apikey: "40a2cbac635f46a280a9e9fd7a5c5b20" },
-      }
+      { headers: { apikey: "40a2cbac635f46a280a9e9fd7a5c5b20" } }
     );
 
     const exchangeRate = exchangeRes.data.exchange_rate;
@@ -240,10 +211,7 @@ Status: success
     // 💰 Отправляем пополнение Steam
     const topupRes = await axios.post(
       "https://desslyhub.com/api/v1/service/steamtopup/topup",
-      {
-        amount: steamAmount,
-        username: odinOrder.steam_login,
-      },
+      { amount: steamAmount, username: odinOrder.steam_login },
       {
         headers: {
           apikey: "40a2cbac635f46a280a9e9fd7a5c5b20",
