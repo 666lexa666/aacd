@@ -83,17 +83,19 @@ router.post("/", async (req, res) => {
     const monthLimit = 100_000;
 
     let refundReason = null;
-    let newStatus = "refund";
+    let newStatus = "success";
     let commitMessage = null;
 
     if (totalDay > dayLimit) {
       const remaining = dayLimit - totalDayWithoutCurrent;
-      refundReason = `Превышен дневной лимит (${dayLimit}  руб)`;
+      refundReason = `Превышен дневной лимит (${dayLimit}₽)`;
       commitMessage = `Превышен лимит суммы операций в день. Остаточный лимит ${remaining} руб.`;
+      newStatus = "refund_pending"; // 👈 добавь это
     } else if (totalMonth > monthLimit) {
       const remaining = monthLimit - totalMonthWithoutCurrent;
-      refundReason = `Превышен месячный лимит (${monthLimit} руб)`;
+      refundReason = `Превышен месячный лимит (${monthLimit}₽)`;
       commitMessage = `Превышен лимит суммы операций в месяц. Остаточный лимит ${remaining} руб.`;
+      newStatus = "refund_pending"; // 👈 и здесь тоже
     }
 
     // 💾 Обновляем purchases
