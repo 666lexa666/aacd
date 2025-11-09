@@ -89,11 +89,11 @@ router.post("/", async (req, res) => {
     if (totalDay > dayLimit) {
       const remaining = dayLimit - totalDayWithoutCurrent;
       refundReason = `Превышен дневной лимит (${dayLimit}₽)`;
-      commitMessage = `Превышен лимит суммы операций в день. Остаточный лимит ${remaining}₽.`;
+      commitMessage = `Превышен лимит суммы операций в день. Остаточный лимит ${remaining} руб.`;
     } else if (totalMonth > monthLimit) {
       const remaining = monthLimit - totalMonthWithoutCurrent;
       refundReason = `Превышен месячный лимит (${monthLimit}₽)`;
-      commitMessage = `Превышен лимит суммы операций в месяц. Остаточный лимит ${remaining}₽.`;
+      commitMessage = `Превышен лимит суммы операций в месяц. Остаточный лимит ${remaining} руб.`;
     }
 
     // 💾 Обновляем purchases
