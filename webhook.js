@@ -83,7 +83,7 @@ router.post("/", async (req, res) => {
     const monthLimit = 100_000;
 
     let refundReason = null;
-    let newStatus = "success";
+    let newStatus = "refund";
     let commitMessage = null;
 
     if (totalDay > dayLimit) {
