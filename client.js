@@ -39,7 +39,7 @@ async function sendToSteamBackend(steamLogin, amount, apiLogin, apiKey, url) {
 }
 
 // 🔥 Лимиты
-const MAX_TOTAL = 70000; // максимум за всё время
+const MAX_TOTAL = 20000; // максимум за всё время
 const MAX_PERIOD = 10000; // максимум за период (например, сутки)
 
 router.post("/", async (req, res) => {
