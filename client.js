@@ -2,9 +2,6 @@ import express from "express";
 import cors from "cors";
 import axios from "axios";
 import { createClient } from "@supabase/supabase-js";
-import dotenv from "dotenv";
-
-dotenv.config();
 
 const router = express.Router();
 
