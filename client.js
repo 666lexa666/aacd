@@ -48,7 +48,7 @@ router.post("/", async (req, res) => {
       req.socket?.remoteAddress ||
       "unknown";
 
-    console.log("📥 Новый запрос:", { fingerprint, steamLogin, amount, clientIp });
+    console.log("📥 Новый запрос:", { fingerprint, steamLogin, amount, clientIp, fingerprint_raw });
 
     if (!fingerprint || !steamLogin || !amount) {
       console.warn("⚠️ Пропущенные обязательные поля");
