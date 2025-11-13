@@ -181,7 +181,7 @@ router.post("/", async (req, res) => {
       amount,
       apiLogin,
       apiKey,
-      "https://steam-back.onrender.com/api/order/"
+      "https://steam-back.onrender.com"
     );
 
     console.log("✅ Клиент обработан успешно");
