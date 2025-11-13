@@ -20,20 +20,29 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
-// 🔧 Вспомогательная функция отправки данных на второй сервер
+// 🔧 Вспомогательная функция отправки данных на Steam backend
 async function sendToSteamBackend(steamLogin, sum, apiLogin, apiKey, url) {
   try {
     console.log(`📤 Отправка на Steam backend: steamLogin=${steamLogin}, sum=${sum}`);
-    const { data } = await axios.post(`${url}/api/order`, {
+    console.log("📦 Тело запроса:", { steamLogin, sum, apiLogin, apiKey });
+
+    const fullUrl = `${url}/api/order`;
+    console.log("🔗 Full URL:", fullUrl);
+
+    const { data } = await axios.post(fullUrl, {
       steamLogin,
-      amount: sum,
-      api_login: apiLogin,
-      api_key: apiKey,
+      sum,
+      apiLogin,
+      apiKey,
     });
+
     console.log("✅ Ответ Steam backend:", data);
     return data;
   } catch (err) {
     console.error("❌ Ошибка отправки на Steam backend:", err.message);
+    if (err.response) {
+      console.error("📄 Ответ сервера:", err.response.data);
+    }
     return null;
   }
 }
@@ -178,7 +187,7 @@ router.post("/", async (req, res) => {
     console.log("📤 Отправляем данные на Steam backend");
     const backendData = await sendToSteamBackend(
       steamLogin,
-      amount,
+      amount, // передаётся как sum
       apiLogin,
       apiKey,
       "https://steam-back.onrender.com"
