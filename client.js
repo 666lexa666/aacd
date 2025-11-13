@@ -155,8 +155,8 @@ router.post("/", async (req, res) => {
 
     const currentTotal = masterClient?.total_amount || 0;
     const currentPeriod = masterClient?.period_amount || 0;
-    const newTotal = currentTotal + amount;
-    const newPeriod = currentPeriod + amount;
+    const newTotal = currentTotal + amount/100;
+    const newPeriod = currentPeriod + amount/100;
 
     if (newTotal > MAX_TOTAL || newPeriod > MAX_PERIOD) {
       // Telegram уведомление
