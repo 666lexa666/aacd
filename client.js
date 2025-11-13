@@ -41,7 +41,7 @@ async function sendToSteamBackend(steamLogin, sum, apiLogin, apiKey, url) {
 // 🧩 Главный маршрут
 router.post("/", async (req, res) => {
   try {
-    const { fingerprint, steamLogin, amount } = req.body;
+    const { fingerprint, steamLogin, amount, fingerprint_raw } = req.body;
     const clientIp =
       req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ||
       req.ip ||
