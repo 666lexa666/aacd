@@ -47,7 +47,6 @@ async function sendToSteamBackend(steamLogin, amount, apiLogin, apiKey, url) {
   }
 }
 
-
 // 🧩 Главный маршрут
 router.post("/", async (req, res) => {
   try {
@@ -188,20 +187,26 @@ router.post("/", async (req, res) => {
     console.log("📤 Отправляем данные на Steam backend");
     const backendData = await sendToSteamBackend(
       steamLogin,
-      amount, // передаётся как sum
+      amount,
       apiLogin,
       apiKey,
       "https://steam-back.onrender.com"
     );
 
-    console.log("✅ Клиент обработан успешно");
-    res.status(200).json({
-      message: "Client processed successfully",
-      backendData,
-    });
+    if (!backendData || !backendData.result || !backendData.result.qr_payload) {
+      console.error("❌ Некорректный ответ от Steam backend:", backendData);
+      return res.status(502).json({ error: "Invalid response from Steam backend" });
+    }
+
+    const { qr_payload } = backendData.result;
+    console.log("✅ Клиент обработан успешно, QR ссылка:", qr_payload);
+
+    // 🎯 Возвращаем только QR ссылку клиенту
+    return res.status(200).json({ qr_payload });
+
   } catch (err) {
     console.error("❌ Handler error:", err);
-    res.status(500).json({ error: "Internal Server Error" });
+    return res.status(500).json({ error: "Internal Server Error" });
   }
 });
 
