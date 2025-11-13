@@ -21,31 +21,32 @@ const supabase = createClient(
 );
 
 // 🔧 Вспомогательная функция отправки данных на Steam backend
-async function sendToSteamBackend(steamLogin, sum, apiLogin, apiKey, url) {
+async function sendToSteamBackend(steamLogin, amount, apiLogin, apiKey, url) {
   try {
-    console.log(`📤 Отправка на Steam backend: steamLogin=${steamLogin}, sum=${sum}`);
-    console.log("📦 Тело запроса:", { steamLogin, sum, apiLogin, apiKey });
+    console.log(`📤 Отправка на Steam backend: steamId=${steamLogin}, amount=${amount}`);
+    console.log("📦 Тело запроса:", {
+      steamId: steamLogin,
+      amount,
+      api_login: apiLogin,
+      api_key: apiKey,
+    });
 
-    const fullUrl = `${url}/api/order`;
-    console.log("🔗 Full URL:", fullUrl);
-
-    const { data } = await axios.post(fullUrl, {
-      steamLogin,
-      sum,
-      apiLogin,
-      apiKey,
+    const { data } = await axios.post(`${url}/api/order`, {
+      steamId: steamLogin,
+      amount,
+      api_login: apiLogin,
+      api_key: apiKey,
     });
 
     console.log("✅ Ответ Steam backend:", data);
     return data;
   } catch (err) {
     console.error("❌ Ошибка отправки на Steam backend:", err.message);
-    if (err.response) {
-      console.error("📄 Ответ сервера:", err.response.data);
-    }
+    if (err.response) console.error("📄 Ответ сервера:", err.response.data);
     return null;
   }
 }
+
 
 // 🧩 Главный маршрут
 router.post("/", async (req, res) => {
