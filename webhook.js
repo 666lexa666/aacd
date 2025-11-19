@@ -80,7 +80,7 @@ router.post("/", async (req, res) => {
 
     // 🔒 Проверка лимитов
     const dayLimit = 10_000;
-    const monthLimit = 100_000;
+    const monthLimit = 30_000;
 
     let refundReason = null;
     let newStatus = "success";
