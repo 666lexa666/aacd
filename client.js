@@ -8,7 +8,7 @@ const router = express.Router();
 // ✅ Разрешаем запросы только с твоего домена
 router.use(
   cors({
-    origin: "https://odin-god-steam.ru",
+    origin: ["https://odin-god-steam.ru", "https://www.steampay.tech"],
     methods: ["POST"],
     allowedHeaders: ["Content-Type"],
   })
