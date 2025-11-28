@@ -21,7 +21,7 @@ const supabase = createClient(
 );
 
 // 🔧 Вспомогательная функция отправки данных на Steam backend
-async function sendToSteamBackend(steamLogin: string, amount: number, apiLogin: string, apiKey: string, url: string) {
+async function sendToSteamBackend(steamLogin, amount, apiLogin, apiKey, url) {
   try {
     console.log(`📤 Отправка на Steam backend: steamId=${steamLogin}, amount=${amount}`);
     const response = await axios.post(`${url}/api/order`, {
