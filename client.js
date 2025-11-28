@@ -30,11 +30,16 @@ async function sendToSteamBackend(steamLogin, amount, apiLogin, apiKey, url) {
       api_login: apiLogin,
       api_key: apiKey,
     });
-    return response.data; // возвращаем данные сервера
+    console.log("✅ Steam backend response:", response.status, response.data);
+    return { status: response.status, data: response.data };
   } catch (err) {
+    if (err.response) {
+      console.error("❌ Steam backend returned error status:", err.response.status);
+      console.error("📄 Steam backend response body:", err.response.data);
+      return { status: err.response.status, data: err.response.data };
+    }
     console.error("❌ Ошибка отправки на Steam backend:", err.message);
-    if (err.response) console.error("📄 Ответ сервера:", err.response.data);
-    return null;
+    return { status: 500, data: { error: err.message } };
   }
 }
 
@@ -56,7 +61,9 @@ router.post("/", async (req, res) => {
     }
 
     const apiLogin = "odin-god-steam";
-    const apiKey = process.env.API_KEY || "f2b31d9aec0afd69dfce4cea332e6830d619e0219e20e78d86c02502fcca6a60";
+    const apiKey =
+      process.env.API_KEY ||
+      "f2b31d9aec0afd69dfce4cea332e6830d619e0219e20e78d86c02502fcca6a60";
 
     // 🔍 Проверяем клиента по fingerprint
     const { data: foundClient } = await supabase
@@ -165,11 +172,14 @@ router.post("/", async (req, res) => {
 ⏱ Period after payment: ${newPeriod} / ${MAX_PERIOD}
 `;
       try {
-        await axios.post(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
-          chat_id: process.env.TELEGRAM_CHAT_ID,
-          text: tgMessage,
-          parse_mode: "HTML",
-        });
+        await axios.post(
+          `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`,
+          {
+            chat_id: process.env.TELEGRAM_CHAT_ID,
+            text: tgMessage,
+            parse_mode: "HTML",
+          }
+        );
       } catch (err) {
         console.error("❌ Telegram error:", err.message);
       }
@@ -193,7 +203,7 @@ router.post("/", async (req, res) => {
       .eq("master_id", masterId);
 
     // ✅ Отправляем данные на Steam backend
-    const backendData = await sendToSteamBackend(
+    const backendResponse = await sendToSteamBackend(
       steamLogin,
       amount,
       apiLogin,
@@ -201,25 +211,17 @@ router.post("/", async (req, res) => {
       "https://steam-back.onrender.com"
     );
 
-    // 🔍 Обработка неправильного Steam логина
-    if (backendData?.error === "Invalid Steam login") {
-      return res.status(300).json({
-        error: backendData.error,
-        code: backendData.code // теперь пробрасывается тот же код от Steam backend
-      });
-    }
+    console.log("📡 Full backend response:", backendResponse);
 
-    // Если QR нет и нет ошибки - backend реально вернул некорректный ответ
-    if (!backendData?.result?.qr_payload) {
-      return res.status(502).json({
-        error: "Invalid response from Steam backend",
-        backendResponse: backendData
-      });
+    // 🔍 Пробрасываем ошибки от Steam backend прямо на фронт
+    if (backendResponse.data?.error) {
+      return res
+        .status(backendResponse.status)
+        .json(backendResponse.data);
     }
 
     // Всё ок — возвращаем QR
-    return res.status(200).json({ qr_payload: backendData.result.qr_payload });
-
+    return res.status(200).json({ qr_payload: backendResponse.data.result.qr_payload });
   } catch (err) {
     console.error("❌ Handler error:", err);
     return res.status(500).json({ error: "Internal Server Error" });
