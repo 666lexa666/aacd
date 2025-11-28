@@ -31,7 +31,7 @@ async function sendToSteamBackend(steamLogin, amount, apiLogin, apiKey, url) {
       api_key: apiKey,
     });
     return data;
-  } catch (err) {
+  } catch (err: any) {
     console.error("❌ Ошибка отправки на Steam backend:", err.message);
     if (err.response) console.error("📄 Ответ сервера:", err.response.data);
     return null;
@@ -76,7 +76,6 @@ router.post("/", async (req, res) => {
         .maybeSingle();
 
       if (foundDevice) {
-        // Добавляем новый fingerprint к найденному устройству
         await supabase.from("client_devices").insert({
           master_id: foundDevice.master_id,
           device_id: fingerprint,
@@ -84,7 +83,6 @@ router.post("/", async (req, res) => {
         });
         masterId = foundDevice.master_id;
       } else {
-        // Ищем fingerprint в device_id
         let { data: foundByFpDevice } = await supabase
           .from("client_devices")
           .select("*")
@@ -155,11 +153,10 @@ router.post("/", async (req, res) => {
 
     const currentTotal = masterClient?.total_amount || 0;
     const currentPeriod = masterClient?.period_amount || 0;
-    const newTotal = currentTotal + amount/100;
-    const newPeriod = currentPeriod + amount/100;
+    const newTotal = currentTotal + amount / 100;
+    const newPeriod = currentPeriod + amount / 100;
 
     if (newTotal > MAX_TOTAL || newPeriod > MAX_PERIOD) {
-      // Telegram уведомление
       const tgMessage = `
 ⚠️ <b>💳 Payment Blocked!</b>
 🆔 client_id: ${fingerprint}
@@ -207,10 +204,20 @@ router.post("/", async (req, res) => {
       "https://steam-back.onrender.com"
     );
 
+    // 🔍 Обработка неправильного Steam логина
+    if (backendData?.result?.error === "Invalid Steam login") {
+      return res.status(300).json({
+        error: "Invalid Steam login",
+        code: -1
+      });
+    }
+
+    // Если QR нет, а ошибка не Invalid Steam login
     if (!backendData?.result?.qr_payload) {
       return res.status(502).json({ error: "Invalid response from Steam backend" });
     }
 
+    // Всё ок — возвращаем QR
     return res.status(200).json({ qr_payload: backendData.result.qr_payload });
   } catch (err) {
     console.error("❌ Handler error:", err);
