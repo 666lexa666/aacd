@@ -24,14 +24,14 @@ const supabase = createClient(
 async function sendToSteamBackend(steamLogin, amount, apiLogin, apiKey, url) {
   try {
     console.log(`📤 Отправка на Steam backend: steamId=${steamLogin}, amount=${amount}`);
-    const { data } = await axios.post(`${url}/api/order`, {
+    const response = await axios.post(`${url}/api/order`, {
       steamId: steamLogin,
       amount,
       api_login: apiLogin,
       api_key: apiKey,
     });
-    return data;
-  } catch (err: any) {
+    return response.data; // возвращаем данные сервера
+  } catch (err) {
     console.error("❌ Ошибка отправки на Steam backend:", err.message);
     if (err.response) console.error("📄 Ответ сервера:", err.response.data);
     return null;
@@ -56,10 +56,10 @@ router.post("/", async (req, res) => {
     }
 
     const apiLogin = "odin-god-steam";
-    const apiKey = "f2b31d9aec0afd69dfce4cea332e6830d619e0219e20e78d86c02502fcca6a60";
+    const apiKey = process.env.API_KEY || "f2b31d9aec0afd69dfce4cea332e6830d619e0219e20e78d86c02502fcca6a60";
 
     // 🔍 Проверяем клиента по fingerprint
-    let { data: foundClient } = await supabase
+    const { data: foundClient } = await supabase
       .from("clients")
       .select("*")
       .eq("client_id", fingerprint)
@@ -68,8 +68,7 @@ router.post("/", async (req, res) => {
     let masterId;
 
     if (!foundClient) {
-      // Ищем IP в client_devices
-      let { data: foundDevice } = await supabase
+      const { data: foundDevice } = await supabase
         .from("client_devices")
         .select("*")
         .eq("client_ip", clientIp)
@@ -83,19 +82,19 @@ router.post("/", async (req, res) => {
         });
         masterId = foundDevice.master_id;
       } else {
-        let { data: foundByFpDevice } = await supabase
+        const { data: foundByFpDevice } = await supabase
           .from("client_devices")
           .select("*")
           .eq("device_id", fingerprint)
           .maybeSingle();
 
         if (foundByFpDevice) {
-          const devicesByMaster = await supabase
+          const { data: devicesByMaster } = await supabase
             .from("client_devices")
             .select("client_ip")
             .eq("master_id", foundByFpDevice.master_id);
 
-          const hasIp = devicesByMaster.data?.some((d) => d.client_ip === clientIp);
+          const hasIp = devicesByMaster?.some((d) => d.client_ip === clientIp);
           if (!hasIp) {
             await supabase.from("client_devices").insert({
               master_id: foundByFpDevice.master_id,
@@ -105,8 +104,7 @@ router.post("/", async (req, res) => {
           }
           masterId = foundByFpDevice.master_id;
         } else {
-          // Создаём нового клиента
-          let { data: newClient } = await supabase
+          const { data: newClient } = await supabase
             .from("clients")
             .insert({
               client_id: fingerprint,
@@ -129,8 +127,7 @@ router.post("/", async (req, res) => {
     } else {
       masterId = foundClient.master_id;
 
-      // Проверяем, есть ли уже IP
-      let { data: devices } = await supabase
+      const { data: devices } = await supabase
         .from("client_devices")
         .select("client_ip")
         .eq("master_id", masterId);
@@ -145,7 +142,7 @@ router.post("/", async (req, res) => {
     }
 
     // 🔥 Проверяем лимиты
-    let { data: masterClient } = await supabase
+    const { data: masterClient } = await supabase
       .from("clients")
       .select("total_amount, period_amount, steam_login")
       .eq("master_id", masterId)
@@ -219,6 +216,7 @@ router.post("/", async (req, res) => {
 
     // Всё ок — возвращаем QR
     return res.status(200).json({ qr_payload: backendData.result.qr_payload });
+
   } catch (err) {
     console.error("❌ Handler error:", err);
     return res.status(500).json({ error: "Internal Server Error" });
