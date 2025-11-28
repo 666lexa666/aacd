@@ -202,10 +202,10 @@ router.post("/", async (req, res) => {
     );
 
     // 🔍 Обработка неправильного Steam логина
-    if (backendData?.result?.error === "Invalid Steam login") {
+    if (backendData?.error === "Invalid Steam login") {
       return res.status(300).json({
-        error: "Invalid Steam login",
-        code: -1
+        error: backendData.error,
+        code: backendData.code  // <- теперь вернёт точно тот же код, что пришёл от Steam
       });
     }
 
