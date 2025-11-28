@@ -21,7 +21,7 @@ const supabase = createClient(
 );
 
 // 🔧 Вспомогательная функция отправки данных на Steam backend
-async function sendToSteamBackend(steamLogin, amount, apiLogin, apiKey, url) {
+async function sendToSteamBackend(steamLogin: string, amount: number, apiLogin: string, apiKey: string, url: string) {
   try {
     console.log(`📤 Отправка на Steam backend: steamId=${steamLogin}, amount=${amount}`);
     const response = await axios.post(`${url}/api/order`, {
@@ -31,7 +31,7 @@ async function sendToSteamBackend(steamLogin, amount, apiLogin, apiKey, url) {
       api_key: apiKey,
     });
     return response.data; // возвращаем данные сервера
-  } catch (err) {
+  } catch (err: any) {
     console.error("❌ Ошибка отправки на Steam backend:", err.message);
     if (err.response) console.error("📄 Ответ сервера:", err.response.data);
     return null;
@@ -205,13 +205,16 @@ router.post("/", async (req, res) => {
     if (backendData?.error === "Invalid Steam login") {
       return res.status(300).json({
         error: backendData.error,
-        code: backendData.code  // <- теперь вернёт точно тот же код, что пришёл от Steam
+        code: backendData.code // теперь пробрасывается тот же код от Steam backend
       });
     }
 
-    // Если QR нет, а ошибка не Invalid Steam login
+    // Если QR нет и нет ошибки - backend реально вернул некорректный ответ
     if (!backendData?.result?.qr_payload) {
-      return res.status(502).json({ error: "Invalid response from Steam backend" });
+      return res.status(502).json({
+        error: "Invalid response from Steam backend",
+        backendResponse: backendData
+      });
     }
 
     // Всё ок — возвращаем QR
