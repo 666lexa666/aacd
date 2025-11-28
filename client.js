@@ -31,7 +31,7 @@ async function sendToSteamBackend(steamLogin, amount, apiLogin, apiKey, url) {
       api_key: apiKey,
     });
     return response.data; // возвращаем данные сервера
-  } catch (err: any) {
+  } catch (err) {
     console.error("❌ Ошибка отправки на Steam backend:", err.message);
     if (err.response) console.error("📄 Ответ сервера:", err.response.data);
     return null;
