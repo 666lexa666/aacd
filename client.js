@@ -5,22 +5,27 @@ import { createClient } from "@supabase/supabase-js";
 
 const router = express.Router();
 
-// ✅ Разрешаем запросы только с твоего домена
-router.use(
-  cors({
-    origin: ["https://odin-god-steam.ru", "https://www.steampay.tech"],
-    methods: ["POST"],
-    allowedHeaders: ["Content-Type"],
-  })
-);
-
 // 🔑 Инициализация Supabase
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
-// 🔧 Вспомогательная функция отправки данных на Steam backend
+// ✅ CORS: разрешаем сайты, серверные POST без Origin пропускаем
+router.use(
+  cors({
+    origin: function (origin, callback) {
+      if (!origin) return callback(null, true); // серверные запросы
+      const allowedOrigins = ["https://odin-god-steam.ru", "https://www.steampay.tech"];
+      if (allowedOrigins.includes(origin)) return callback(null, true);
+      return callback(new Error("Not allowed by CORS"));
+    },
+    methods: ["POST"],
+    allowedHeaders: ["Content-Type", "X-APP-TOKEN"],
+  })
+);
+
+// 🔧 Функция отправки данных на Steam backend
 async function sendToSteamBackend(steamLogin, amount, apiLogin, apiKey, url) {
   try {
     console.log(`📤 Отправка на Steam backend: steamId=${steamLogin}, amount=${amount}`);
@@ -44,8 +49,8 @@ async function sendToSteamBackend(steamLogin, amount, apiLogin, apiKey, url) {
 }
 
 // 🔥 Лимиты
-const MAX_TOTAL = 20000; // максимум за всё время
-const MAX_PERIOD = 10000; // максимум за период (например, сутки)
+const MAX_TOTAL = 20000;
+const MAX_PERIOD = 10000;
 
 router.post("/", async (req, res) => {
   try {
@@ -64,6 +69,15 @@ router.post("/", async (req, res) => {
     const apiKey =
       process.env.API_KEY ||
       "f2b31d9aec0afd69dfce4cea332e6830d619e0219e20e78d86c02502fcca6a60";
+
+    // 🔹 Проверка X-APP-TOKEN только для запросов с сайта
+    const origin = req.headers.origin;
+    if (origin) {
+      const token = req.headers["x-app-token"];
+      if (token !== process.env.APP_SECRET_TOKEN) {
+        return res.status(403).json({ error: "Forbidden — invalid app token" });
+      }
+    }
 
     // 🔍 Проверяем клиента по fingerprint
     const { data: foundClient } = await supabase
