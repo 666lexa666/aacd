@@ -16,7 +16,7 @@ router.use(
   cors({
     origin: function (origin, callback) {
       if (!origin) return callback(null, true); // серверные запросы
-      const allowedOrigins = ["https://odin-god-steam.ru", "https://www.steampay.tech"];
+      const allowedOrigins = ["hhttps://phantom-payments.ru/", "https://www.steampay.tech"];
       if (allowedOrigins.includes(origin)) return callback(null, true);
       return callback(new Error("Not allowed by CORS"));
     },
