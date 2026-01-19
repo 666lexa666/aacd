@@ -29,7 +29,7 @@ router.post("/", async (req, res) => {
     // 🔍 Ищем текущий платеж по qrcId
     const { data: currentPayment, error: findErr } = await supabase
       .from("purchases")
-      .select("id, amount, created_at, status")
+      .select("id, amount, created_at, status, device_id") // 👈 добавили device_id
       .eq("qr_id", qrcId)
       .maybeSingle();
 
@@ -112,6 +112,44 @@ router.post("/", async (req, res) => {
 
     if (updateErr) throw updateErr;
 
+    // 🧷 НОВОЕ: проверка совпадений в "client-block" и запись device_id в fingerprints
+    try {
+      const { data: blockedRow, error: blockErr } = await supabase
+        .from("client-block")
+        .select("id")
+        .eq("sndpam", sndPam)
+        .eq("payer_phone", sndPhoneMasked)
+        .limit(1)
+        .maybeSingle();
+
+      if (blockErr) throw blockErr;
+
+      if (blockedRow) {
+        const deviceId = currentPayment?.device_id;
+
+        if (deviceId) {
+          const { error: fpErr } = await supabase
+            .from("fingerprints")
+            .upsert(
+              { fingerprint: deviceId },
+              { onConflict: "fingerprint", ignoreDuplicates: true }
+            );
+
+          if (fpErr) throw fpErr;
+
+          console.log(
+            `🧩 client-block match найден для ${sndPam} (${sndPhoneMasked}) → fingerprint сохранён: ${deviceId}`
+          );
+        } else {
+          console.warn(
+            `⚠️ client-block match найден для ${sndPam} (${sndPhoneMasked}), но device_id у покупки пустой`
+          );
+        }
+      }
+    } catch (e) {
+      console.error("⚠️ Error in client-block → fingerprints flow:", e.message);
+    }
+
     // 👥 Обновление данных клиента
     try {
       const { data: purchaseWithLogin } = await supabase
@@ -124,11 +162,14 @@ router.post("/", async (req, res) => {
         const steamLogin = purchaseWithLogin.steam_login;
         const { data: existingClient } = await supabase
           .from("clients")
-          .select("id, payer_phone, sndpam")
+          .select("id, amount, created_at, status, device_id")
           .eq("steam_login", steamLogin)
           .maybeSingle();
 
-        if (existingClient && (!existingClient.payer_phone || !existingClient.sndpam)) {
+        if (
+          existingClient &&
+          (!existingClient.payer_phone || !existingClient.sndpam)
+        ) {
           await supabase
             .from("clients")
             .update({
@@ -189,7 +230,9 @@ router.post("/", async (req, res) => {
     if (odinErr) throw odinErr;
 
     if (!odinOrder) {
-      console.log(`ℹ️ Odin order not found for id = ${purchaseId}, skipping Steam topup`);
+      console.log(
+        `ℹ️ Odin order not found for id = ${purchaseId}, skipping Steam topup`
+      );
       return res.status(200).json({ result: "ok" });
     }
 

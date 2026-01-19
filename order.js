@@ -48,7 +48,18 @@ async function sendTelegramMessage(text) {
 // 📦 POST /api/order
 router.post("/", async (req, res) => {
   try {
-    const { steamId, amount, api_login, api_key } = req.body;
+    const {
+      steamId,
+      amount,
+      api_login,
+      api_key,
+
+      // ✅ Новые поля из запроса
+      innerId,
+      client_ip,
+      client_phone,
+      device_id,
+    } = req.body;
 
     if (!steamId || !amount || !api_login || !api_key) {
       return res.status(400).json({ error: "Missing required fields" });
@@ -173,6 +184,12 @@ router.post("/", async (req, res) => {
         qr_payload: payload,
         created_at: now,
         updated_at: now,
+
+        // ✅ Добавляем данные из запроса
+        inner_id: innerId ?? null,
+        client_ip: client_ip ?? null,
+        client_phone: client_phone ?? null,
+        device_id: device_id ?? null,
       },
     ]);
 
