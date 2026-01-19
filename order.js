@@ -136,7 +136,7 @@ router.post("/", async (req, res) => {
       merchantId: process.env.CFT_MERCHANT_ID,
       accAlias: process.env.CFT_ACC_ALIAS,
       amount: Number(amount),
-      paymentPurpose: `оплат товара в магазине 7-eleven`,
+      paymentPurpose: `оплата товара в магазине 7-eleven`,
       qrcType: "02",
       expDt: 25,
       localExpDt: 1500,
